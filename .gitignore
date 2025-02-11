@@ -1,4 +1,9 @@
 # Byte-compiled / optimized / DLL files
+model/char/data/train
+model/char/data/val
+# 忽略检查点目录下的临时文件
+model/char/checkpoint/
+.cursorignore
 __pycache__/
 *.py[cod]
 *$py.class
