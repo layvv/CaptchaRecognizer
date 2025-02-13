@@ -1,22 +1,18 @@
-from model.char.config import DataSetConfig
-from model.char.data.generator import generate_captcha
+#!/usr/bin/env python3
+"""
+验证码数据集生成入口脚本（简化版）
+"""
 
-if __name__ == "__main__":
-    total = DataSetConfig.TOTAL_SAMPLES
-    ratio = DataSetConfig.TRAIN_RATIO
-    train_samples = int(total * ratio)
-    val_samples = total - train_samples
-    print("\n" + "="*40)
-    print("🚀 开始生成验证码数据集")
-    print(f"总样本数：{total} (训练集：{train_samples} | 验证集：{val_samples})")
-    print("="*40 + "\n")
-    generate_captcha(
-        save_dir='train',
-        start_idx=0,
-        num_samples=train_samples
-    )
-    generate_captcha(
-        save_dir='val',
-        start_idx=0,
-        num_samples=val_samples
-    )
+from model.char.data.generator import CaptchaGenerator
+
+
+def main():
+    
+    # 初始化生成器
+    generator = CaptchaGenerator()
+    print(f"🚀 开始生成数据集")
+    generator.generate_dataset()
+    print("✅ 数据集生成完成！")
+
+if __name__ == '__main__':
+    main()
