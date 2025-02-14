@@ -9,7 +9,7 @@ from torchvision import transforms
 from tqdm import tqdm
 
 from model.char.config import DataSetConfig
-from model.char.utils import clear_dir, load_fonts
+from model.char.utils.utils import clear_dir, load_fonts
 
 
 class CaptchaGenerator:

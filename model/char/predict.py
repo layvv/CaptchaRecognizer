@@ -3,6 +3,10 @@ import torch
 from PIL import Image
 import io
 from datetime import datetime
+from typing import List, Union
+import argparse
+import sys
+import time
 
 from model.char.config import BaseConfig
 from model.char.model.resnet18 import ResNet18MultiHead
@@ -10,87 +14,104 @@ from torchvision import transforms
 
 class CaptchaPredictor:
     def __init__(self, model_path: str):
-        """验证码识别API核心类（必须指定模型路径）
+        """验证码识别器
         
         参数：
-            checkpoint_path (str): 模型检查点完整路径
+            model_path (str): 训练好的模型文件路径（.pth）
         """
-        if not model_path:
-            raise ValueError("必须提供模型检查点路径")
-            
-        if not os.path.exists(model_path):
+        # 参数校验（新增更严格的检查）
+        if not os.path.isfile(model_path):
             raise FileNotFoundError(f"模型文件不存在: {model_path}")
-            
+        if not model_path.endswith('.pth'):
+            raise ValueError("模型文件必须为.pth格式")
+        
+        # 初始化设备
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.model = self._load_model(model_path)
-        self.transform = self._build_transform()
+        print(f"⚙️ 运行设备: {self.device}")
+        
+        # 加载模型
+        self._load_model(model_path)
+        self._init_image_processing()
 
-    def _build_transform(self):
-        """构建图像预处理流水线"""
-        return transforms.Compose([
+    def _load_model(self, model_path: str):
+        try:
+            # 加载配置文件
+            config_path = os.path.join(os.path.dirname(model_path), 'training_config.json')
+            if not os.path.exists(config_path):
+                raise FileNotFoundError(f"配置文件不存在: {config_path}")
+            
+            # 动态创建模型
+            from model.char.model import create_model
+            self.model = create_model(config_path).to(self.device)
+            
+            # 加载权重
+            state_dict = torch.load(model_path, map_location=self.device)
+            if 'model_state_dict' in state_dict:
+                self.model.load_state_dict(state_dict['model_state_dict'])
+            else:
+                self.model.load_state_dict(state_dict)
+            
+            self.model.eval()
+            print(f"✅ 成功加载 {self.model.__class__.__name__} 模型")
+        except Exception as e:
+            raise RuntimeError(f"模型加载失败: {str(e)}")
+
+    def _init_image_processing(self):
+        """初始化图像处理流程"""
+        self.transform = transforms.Compose([
             transforms.Resize(BaseConfig.IMAGE_SIZE[::-1]),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
-    
-    def _load_model(self, checkpoint_path: str):
-        """加载指定模型检查点"""
-        # 初始化模型
-        model = ResNet18MultiHead().to(self.device)
-        
-        # 加载检查点
-        state = torch.load(checkpoint_path, map_location=self.device)
-        model.load_state_dict(state['model_state_dict'])
-        model.eval()
-        print(f"✅ 成功加载模型: {os.path.basename(checkpoint_path)}")
-        return model
+        self.char_set = BaseConfig.CHAR_SET
+        print(f"📊 字符集加载完成，共{len(self.char_set)}个字符")
 
-    def predict_from_bytes(self, image_bytes: bytes) -> str:
-        """通过字节流进行预测
+    def predict(self, input_source: Union[str, bytes]) -> str:
+        """统一预测接口
         
         参数：
-            image_bytes: 图片的二进制数据
+            input_source (str/bytes): 图片路径或二进制数据
             
         返回：
             str: 识别结果
         """
-        return self._predict(image_bytes)
-
-    def predict_from_path(self, image_path: str) -> str:
-        """通过本地文件路径进行预测
-        
-        参数：
-            image_path: 图片文件路径
-            
-        返回：
-            str: 识别结果
-        """
-        if not os.path.exists(image_path):
-            raise FileNotFoundError(f"Image not found: {image_path}")
-        with open(image_path, "rb") as f:
-            return self._predict(f.read())
-
-    def _predict(self, image_input):
-        """统一预测方法"""
-        with torch.no_grad():
-            tensor = self._preprocess(image_input)
-            outputs = self.model(tensor)
-            predictions = [output.argmax(dim=1).item() for output in outputs]
-            return ''.join([BaseConfig.CHAR_SET[i] for i in predictions])
-
-    def _preprocess(self, image_input):
-        """统一预处理方法"""
         try:
-            if isinstance(image_input, bytes):
-                image = Image.open(io.BytesIO(image_input)).convert('RGB')
+            # 自动识别输入类型
+            if isinstance(input_source, str):
+                if not os.path.exists(input_source):
+                    raise FileNotFoundError(f"图片路径不存在: {input_source}")
+                with open(input_source, "rb") as f:
+                    image_bytes = f.read()
+            elif isinstance(input_source, bytes):
+                image_bytes = input_source
             else:
-                raise ValueError("Invalid input type")
+                raise ValueError("不支持的输入类型，请提供文件路径或字节流")
+
+            # 转换为Tensor
+            image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+            tensor = self.transform(image).unsqueeze(0).to(self.device)
+
+            # 执行预测
+            with torch.no_grad():
+                outputs = self.model(tensor)
             
-            return self.transform(image).unsqueeze(0).to(self.device)
+            return self._decode_predictions(outputs)
         except Exception as e:
-            raise RuntimeError(f"Image processing failed: {str(e)}")
+            raise RuntimeError(f"预测过程中发生错误: {str(e)}")
+
+    def _decode_predictions(self, outputs: List[torch.Tensor]) -> str:
+        """解析多任务头输出"""
+        return ''.join([self.char_set[head.argmax().item()] for head in outputs])
 
 if __name__ == '__main__':
-    predictor = CaptchaPredictor("C:\\Dev\\code\\Projects\\CaptchaRecognizer\\model\\char\\checkpoint\\resnet18_multi_head_bs64_lr0.001_20250211_202340\\resnet18_multi_head_40.pth")
-    result = predictor.predict_from_path("C:\\Users\\yu\\Downloads\\captcha (4).jpg")
-    print(f"识别结果: {result}")
+    # 示例用法（用户可修改这两个路径）
+    MODEL_PATH = "path/to/your/model.pth"  # ← 修改为实际模型路径
+    TEST_IMAGE = "path/to/test_image.png"  # ← 修改为测试图片路径
+    
+    # 创建预测器实例
+    try:
+        predictor = CaptchaPredictor(MODEL_PATH)
+        result = predictor.predict(TEST_IMAGE)
+        print(f"\n🔮 识别结果: {result}")
+    except Exception as e:
+        print(f"❌ 错误: {str(e)}")

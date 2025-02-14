@@ -1,212 +1,265 @@
 import torch
-import torchvision
+import torch.nn.functional as F
 from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
-
 from model.char.config import BaseConfig
-from model.char.data.dataset import CaptchaDataset
-from model.char.utils import create_experiment_dir, save_checkpoint
+from model.char.utils.file_util import create_experiment_dir, save_final_model, save_checkpoint, log_startup_info
+from model.char.utils.visualizer import Visualizer
+from collections import defaultdict
+
+
+class BasicBlock(nn.Module):
+    def __init__(self, in_channels, out_channels, stride=1):
+        super().__init__()
+        self.conv1 = nn.Conv2d(
+            in_channels, out_channels, kernel_size=3,
+            stride=stride, padding=1, bias=False
+        )
+        self.bn1 = nn.BatchNorm2d(out_channels)
+        self.conv2 = nn.Conv2d(
+            out_channels, out_channels, kernel_size=3,
+            stride=1, padding=1, bias=False
+        )
+        self.bn2 = nn.BatchNorm2d(out_channels)
+        self.shortcut = nn.Sequential()
+        if stride != 1 or in_channels != out_channels:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(in_channels, out_channels, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(out_channels)
+            )
+
+    def forward(self, x):
+        out = F.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out += self.shortcut(x)
+        return F.relu(out)
 
 
 class ResNet18MultiHead(nn.Module):
     name = 'resnet18_multi_head'
-    batch_size = 64
-    epochs = 50
+    num_classes = BaseConfig.NUM_CLASSES
+    captcha_length = BaseConfig.CAPTCHA_LENGTH
+    batch_size = 128
+    epochs = 100
     lr = 1e-3
+    warmup_epochs = 5
+    min_lr = 1e-6
     num_workers = 4
     pin_memory = True
     persistent_workers = True
     early_stop_patience = 10
-    early_stop_delta = 0.001
-    dropout = 0.5
-    save_interval = 5  # 每5个epoch保存一次
+    early_stop_delta = 0.002
+    weight_decay = 1e-4
+    conv_dropout = 0.2
+    shared_dropout = 0.3
+    head_dropout = 0.2
+    save_interval = 5
+    max_checkpoints = 3
+
+    # 网络结构参数
+    hidden_dim = 512
+    head_hidden_dim = 256
+    stem_channels = 32
+    reduction_ratio = 4
 
     def __init__(self):
         super().__init__()
-        self.num_classes = BaseConfig.NUM_CLASSES
-        self.captcha_length = BaseConfig.CAPTCHA_LENGTH
 
-        # 使用配置初始化网络
-        self.backbone = torchvision.models.resnet18(weights='DEFAULT')
-        in_features = self.backbone.fc.in_features
-        self.backbone.fc = nn.Identity()
+        # 重构特征提取层
+        self.stem = nn.Sequential(
+            nn.Conv2d(3, self.stem_channels, 3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(self.stem_channels),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+        )
 
+        # 构建残差块序列
+        self.layer1 = self._make_layer(block=BasicBlock, in_channels=self.stem_channels, out_channels=64, blocks=2, stride=1)
+        self.layer2 = self._make_layer(block=BasicBlock, in_channels=64, out_channels=128, blocks=2, stride=2)
+        self.layer3 = self._make_layer(block=BasicBlock, in_channels=128, out_channels=256, blocks=2, stride=2)
+
+        # 添加SE注意力模块
+        self.se = nn.Sequential(
+            nn.AdaptiveAvgPool2d(1),
+            nn.Conv2d(256, 256 // self.reduction_ratio, kernel_size=1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(256 // self.reduction_ratio, 256, kernel_size=1),
+            nn.Sigmoid()
+        )
+
+        # 修改分类头前的池化层
+        self.global_pool = nn.AdaptiveAvgPool2d(1)  # 自适应池化
+
+        self.shared_fc = nn.Sequential(
+            nn.Linear(256, self.hidden_dim),  # 直接使用SE模块的输出通道数
+            nn.BatchNorm1d(self.hidden_dim),
+            nn.ReLU(),
+            nn.Dropout(self.shared_dropout)
+        )
+
+        # 多任务头
         self.heads = nn.ModuleList([
             nn.Sequential(
-                nn.Dropout(self.dropout),
-                nn.Linear(in_features, self.num_classes)
+                nn.Linear(self.hidden_dim, self.head_hidden_dim),
+                nn.BatchNorm1d(self.head_hidden_dim),
+                nn.ReLU(),
+                nn.Dropout(self.head_dropout),
+                nn.Linear(self.head_hidden_dim, self.num_classes)
             ) for _ in range(self.captcha_length)
         ])
 
-        # 优化器和学习率调度器
-        self.optimizer = torch.optim.AdamW(self.parameters(), lr=self.lr)
-        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
-            self.optimizer, mode='min', factor=0.1, patience=5
-        )
-        self.criterion = nn.CrossEntropyLoss()
-
-        # 训练设备配置
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.to(self.device)
-
-        self.learning_rates = []
-        self.confusion_matrix = None
-        self.best_val_loss = float('inf')
-        self.train_losses = []
-        self.train_accs = []
-        self.val_losses = []
-        self.val_accs = []
-        self.is_early_stop = False
-        self.no_improve_counter = 0
-
-
-    def forward(self, x):
-        features = self.backbone(x)
-        return [head(features) for head in self.heads]
+        self._init_weights()  # 权重初始化
 
     @staticmethod
-    def _calculate_accuracy(outputs, labels):
-        with torch.no_grad():
-            total_correct = 0
-            # outputs[i]:表示一个批次中所有图片在第i个位置上的概率分布
-            # 例如一个批次中训练32张4位字符的图片，那么outputs共4个output,第1个output
-            # 存储了模型对每张图片在第1个字符上的预测，比如对第一张图片预测：[0.8,0.2,...,0.4]共62个概率值
-            # 对应了'012...Z'62个字符，假设概率最大的值为0.8，那么模型对这张图片第一个字符的预测为0
-            for i, output in enumerate(outputs):
-                # i代表字符位置，第i次循环，predicted保存了每张图片在第i个位置上的预测结果，用索引值表示
-                # 比如第一次循环，predicted=[0,60,...,30]共32个索引值，对应每张图片在第1个位置上的字符的索引
-                _, predicted = output.max(1)
-                # labels[:,i]表示取每张图片在第i个位置上的真实字符索引，
-                # labels = [
-                #   [0,62,1,61],
-                #   ...
-                #   [30,15,22,10]
-                # ]共32个元素
-                total_correct += (predicted == labels[:, i]).sum().item()
-            return total_correct / (labels.size(0) * labels.size(1))
+    def _make_layer(block, in_channels, out_channels, blocks, stride=1):
+        layers = [block(in_channels, out_channels, stride)]
+        for _ in range(1, blocks):
+            layers.append(block(out_channels, out_channels))
+        return nn.Sequential(*layers)
 
-    def start_train(self):
-        # 创建实验目录（仅在训练时执行）
+    def _init_weights(self):
+        # 只初始化未加载的参数
+        for m in self.modules():
+            if isinstance(m, nn.Conv2d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
+            elif isinstance(m, nn.BatchNorm2d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+        # 头部网络特殊初始化（会被预训练参数覆盖）
+        for head in self.heads:
+            nn.init.normal_(head[-1].weight, mean=0, std=0.01)
+
+    def _init_training_config(self):
+        # 初始化设备
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.to(self.device)  # 将模型移动到设备
+
+        # 优化器
+        self.optimizer = torch.optim.AdamW(
+            self.parameters(),
+            lr=self.lr,
+            weight_decay=self.weight_decay
+        )
+
+        # 学习率调度器（线性预热+Plateau衰减）
+        warmup = torch.optim.lr_scheduler.LinearLR(
+            self.optimizer,
+            start_factor=0.01,
+            end_factor=1.0,
+            total_iters=self.warmup_epochs
+        )
+        plateau = torch.optim.lr_scheduler.ReduceLROnPlateau(
+            self.optimizer,
+            mode='max',
+            factor=0.5,
+            patience=3,
+            min_lr=self.min_lr
+        )
+        self.scheduler = torch.optim.lr_scheduler.SequentialLR(
+            self.optimizer,
+            schedulers=[warmup, plateau],
+            milestones=[self.warmup_epochs]
+        )
+
+        # 损失函数
+        self.criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
+
+        # 实验目录
         self.experiment_dir = create_experiment_dir(
             model_name=self.name,
             model_params={
                 'batch_size': self.batch_size,
-                'lr': self.lr
+                'lr': self.lr,
             }
         )
 
-        # 准备数据集
-        train_dataset = CaptchaDataset('train')
-        val_dataset = CaptchaDataset('val')
+        self.visualizer = Visualizer(self.experiment_dir)
 
-        train_loader = DataLoader(
-            train_dataset,
+    def _init_training_state(self):
+        """训练状态初始化"""
+        self.best_val_loss = float('inf')
+        self.train_losses = []
+        self.val_losses = []
+        self.train_accs = []
+        self.val_accs = []
+        self.learning_rates = []
+        self.no_improve_counter = 0
+        self.is_early_stop = False
+
+    def _load_data(self, num_samples):
+
+        from model.char.data.dataset import CaptchaDataset
+
+        # 加载数据集
+        self.train_dataset = CaptchaDataset(num_samples, 'train')
+        self.val_dataset = CaptchaDataset(num_samples, 'valid')
+
+        # 构建数据信息
+        data_info = {
+            "训练集样本": len(self.train_dataset),
+            "验证集样本": len(self.val_dataset),
+            "图像尺寸": BaseConfig.IMAGE_SIZE,
+            "字符长度": BaseConfig.CAPTCHA_LENGTH,
+            "字符类别数": BaseConfig.NUM_CLASSES
+        }
+
+        # 打印美观的日志
+        print("\n╭────────────────── Data Loading ───────────────────╮")
+        for i, (k, v) in enumerate(data_info.items()):
+            prefix = "│ " if i == 0 else "│ "
+            print(f"{prefix}{k+':':<14} {v}")
+        print("╰───────────────────────────────────────────────────╯\n")
+
+        # 数据加载器
+        self.train_loader = DataLoader(
+            self.train_dataset,
             batch_size=self.batch_size,
             shuffle=True,
             num_workers=self.num_workers,
-            pin_memory=self.pin_memory,  # 启用内存锁页
-            persistent_workers=self.persistent_workers if self.num_workers > 0 else False
+            pin_memory=self.pin_memory,
+            persistent_workers=self.persistent_workers if self.num_workers > 0 else False,
         )
 
-        val_loader = DataLoader(
-            val_dataset,
+        self.valid_loader = DataLoader(
+            self.val_dataset,
             batch_size=self.batch_size,
             shuffle=False,
             num_workers=self.num_workers
         )
 
-        for epoch in range(self.epochs):
-            self.train()
-            epoch_train_loss = 0
-            epoch_train_acc = 0
-            progress_bar = tqdm(
-                train_loader,
-                desc=f'Train Epoch {epoch+1}/{self.epochs}',
-                leave=False
-            )
+    def _forward_features(self, x):
+        x = self.stem(x)
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.se(x) * x  # SE注意力
+        x = self.global_pool(x)
+        return x.view(x.size(0), -1)
 
-            for _, (images, labels) in enumerate(progress_bar):
-                images = images.to(self.device)
-                labels = labels.to(self.device)
+    def forward(self, x):
+        # 特征提取
+        x = self._forward_features(x)
+        # 展平处理
+        x = torch.flatten(x, 1)
+        shared = self.shared_fc(x)
+        return [head(shared) for head in self.heads]
 
-                # 前向传播
-                outputs = self(images)
-
-
-                # 计算多任务损失
-                loss = sum(self.criterion(output, labels[:, i]) for i, output in enumerate(outputs))
-
-                # 反向传播
-                self.optimizer.zero_grad()
-                loss.backward()
-                self.optimizer.step()
-
-                # 计算指标
-                epoch_train_loss += loss.item()
-                batch_acc = self._calculate_accuracy(outputs, labels)
-                epoch_train_acc += batch_acc
-
-                # 实时更新进度信息
-                progress_bar.set_postfix({
-                    'loss': f'{loss.item():.4f}',
-                    'acc': f'{batch_acc*100:.2f}%',
-                    'lr': f'{self.optimizer.param_groups[0]["lr"]:.2e}'
-                })
-
-            # 验证阶段，返回一次epoch内, 验证集的平均损失和准确率
-            val_loss, val_acc = self._evaluate(val_loader, epoch + 1)
-
-            # 一次epoch内, 训练集的平均损失和准确率
-            train_loss = epoch_train_loss / len(train_loader)
-            train_acc = epoch_train_acc / len(train_loader)
-            self.train_losses.append(train_loss)
-            self.train_accs.append(train_acc)
-            self.val_losses.append(val_loss)
-            self.val_accs.append(val_acc)
-
-            # 更新学习率
-            self.scheduler.step(val_loss)
-
-            current_lr = self.optimizer.param_groups[0]['lr']
-            # 在训练循环中添加学习率记录
-            self.learning_rates.append(current_lr)
-
-            # 早停机制
-            if val_loss < self.best_val_loss - self.early_stop_delta:
-                self.best_val_loss = val_loss
-                self.no_improve_counter = 0
-            else:
-                self.no_improve_counter += 1
-                if self.no_improve_counter >= self.early_stop_patience:
-                    # 跳出循环后不会+1，所以需要手动+1
-                    epoch += 1
-                    print(f'Early stopping after {epoch} epochs')
-                    self.is_early_stop = True
-                    break
-
-            # 打印训练信息
-            print(f'Epoch {epoch+1:02d} | '
-                  f'Train Loss: {train_loss:.4f} | '
-                  f'Train Acc: {train_acc*100:.2f}% | '
-                  f'Val Loss: {val_loss:.4f} | '
-                  f'Val Acc: {val_acc*100:.2f}% | '
-                  f'LR: {self.optimizer.param_groups[0]["lr"]:.2e} | '
-                  f'No Improve: {self.no_improve_counter} | '
-                  f'Best Val Loss: {self.best_val_loss:.2f} | '
-                  )
-            self._save_checkpoint(epoch+1)
-        print(f"🏁 训练完成！模型保存在: {self.experiment_dir}")
-
-    def _evaluate(self, data_loader, epoch_num=None):
+    def _eval(self, epoch):
         self.eval()
         total_loss = 0
         total_acc = 0
+        all_labels = []
+        all_preds = []
+        # 平均每个位置的正确率
+        position_acc = [0.0] * self.captcha_length
+        # 字符分布统计
+        char_distribution = defaultdict(lambda: {'correct':0, 'total':0})
 
         with torch.no_grad():
-            desc = f'Valid Epoch {epoch_num}/{self.epochs}'
+            desc = f'valid Epoch {epoch}/{self.epochs}'
             val_bar = tqdm(
-                data_loader,
+                self.valid_loader,
                 desc=desc,
                 leave=False
             )
@@ -216,25 +269,187 @@ class ResNet18MultiHead(nn.Module):
                 outputs = self(images)
                 loss = sum(self.criterion(output, labels[:, i]) for i, output in enumerate(outputs))
 
-                # 实时指标计算
-                batch_acc = self._calculate_accuracy(outputs, labels)
+                full_acc, preds = self._calculate_accuracy(outputs, labels)
                 total_loss += loss.item()
-                total_acc += batch_acc
+                total_acc += full_acc
 
-                # 统一指标显示格式
                 val_bar.set_postfix({
                     'loss': f'{loss.item():.4f}',
-                    'acc': f'{batch_acc*100:.2f}%'
+                    'acc': f'{full_acc*100:.2f}%'
                 })
 
-        return total_loss / len(data_loader), total_acc / len(data_loader)
+                all_preds.extend(preds.cpu().numpy())
+                all_labels.extend(labels.cpu().numpy())
 
+                # 统计字符分布
+                for i in range(labels.size(0)):
+                    for j in range(labels.size(1)):
+                        char_idx = labels[i][j].item()
+                        char = BaseConfig.CHAR_SET[char_idx]
+                        char_distribution[char]['total'] += 1
+                        if preds[i][j] == labels[i][j]:
+                            char_distribution[char]['correct'] += 1
 
-    def _save_checkpoint(self,epoch):
-        # 如果模型早停，则不保存最后一次检查点
-        if self.is_early_stop:
-            return
-        # 如果达到保存间隔，或者达到总轮次，则保存检查点
-        if epoch % self.save_interval == 0 or epoch == self.epochs:
+                # 统计每个位置的准确率
+                pos_correct = [0] * self.captcha_length
+                for pos in range(self.captcha_length):
+                    pos_correct[pos] += (preds[:, pos] == labels[:, pos]).sum().item()
+                    position_acc[pos] = pos_correct[pos] / labels.size(0)
+
+            # 记录混淆矩阵
+            self.visualizer.log_confusion_matrix(all_labels, all_preds, epoch)
+
+            # 记录位置正确率
+            self.visualizer.log_char_pos_acc(position_acc, epoch)
+
+            # 记录字符统计
+            self.visualizer.log_char_distribution(char_distribution, epoch)
+
+        return total_loss / len(self.valid_loader), total_acc / len(self.valid_loader)
+
+    def _train(self, epoch):
+
+        if torch.cuda.is_available():
+            torch.cuda.reset_peak_memory_stats()
+
+        self.train()
+        total_loss = 0
+        total_acc = 0
+        progress_bar = tqdm(
+            self.train_loader,
+            desc=f'Train Epoch {epoch}/{self.epochs}',
+            leave=False
+        )
+        for _, (images, labels) in enumerate(progress_bar):
+            images = images.to(self.device)
+            labels = labels.to(self.device)
+
+            # 前向传播
+            outputs = self(images)
+
+            # 计算多任务损失
+            loss = sum(self.criterion(output, labels[:, i]) for i, output in enumerate(outputs))
+
+            # 反向传播
+            self.optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=2.0)
+            self.optimizer.step()
+
+            # 计算指标
+            total_loss += loss.item()
+            full_acc,_ = self._calculate_accuracy(outputs, labels)
+            total_acc += full_acc
+
+            # 实时更新进度信息
+            progress_bar.set_postfix({
+                'loss': f'{loss.item():.4f}',
+                'acc': f'{full_acc*100:.2f}%',
+                'lr': f'{self.optimizer.param_groups[0]["lr"]:.2e}'
+            })
+
+            # 记录显存使用到TensorBoard（添加单位转换）
+            if torch.cuda.is_available():
+                # 转换为GB显示
+                max_mem_gb = torch.cuda.max_memory_allocated() / (1024 ** 3)
+                alloc_mem_gb = torch.cuda.memory_allocated() / (1024 ** 3)
+                self.visualizer.log_scalars('Memory', {
+                    'Peak (GB)': max_mem_gb,
+                    'Allocated (GB)': alloc_mem_gb
+                }, epoch)
+
+        return total_loss / len(self.train_loader), total_acc / len(self.train_loader)
+
+    @staticmethod
+    def _calculate_accuracy(outputs, labels):
+        with torch.no_grad():
+            # 完全正确率
+            preds = torch.stack([output.argmax(1) for output in outputs], dim=1)
+            all_correct = (preds == labels).all(dim=1).sum().item()
+
+            return all_correct / labels.size(0), preds
+
+    def _check_early_stop(self, val_loss, epoch):
+        # 早停机制
+        if val_loss < self.best_val_loss - self.early_stop_delta:
+            self.best_val_loss = val_loss
+            self.no_improve_counter = 0
+        else:
+            self.no_improve_counter += 1
+            if self.no_improve_counter >= self.early_stop_patience:
+                print(f'Early stopping after {epoch} epochs')
+                self.is_early_stop = True
+
+    def start(self, num_samples=None):
+        """训练入口方法"""
+        # 确保模型在正确设备上
+        self._init_training_config()  # 先初始化设备
+        
+        # 初始化训练相关配置
+        self._init_training_state()
+
+        self._load_data(num_samples)
+
+        log_startup_info(self)
+
+        for epoch in range(1, self.epochs+1):
+
+            # 一次epoch内, 训练集的平均损失和准确率
+            train_loss, train_acc = self._train(epoch)
+
+            # 验证阶段，返回一次epoch内, 验证集的平均损失和准确率
+            val_loss, val_acc = self._eval(epoch)
+
+            # 更新学习率
+            if epoch > self.warmup_epochs:
+                self.scheduler.step(val_acc)  # 对ReduceLROnPlateau使用验证损失
+            else:
+                self.scheduler.step()  # 预热阶段不需要参数
+            current_lr = self.optimizer.param_groups[0]['lr']
+
+            self.train_losses.append(train_loss)
+            self.train_accs.append(train_acc)
+            self.val_losses.append(val_loss)
+            self.val_accs.append(val_acc)
+            self.learning_rates.append(current_lr)
+
+            # 记录标量数据
+            self.visualizer.log_scalars('Loss', {
+                'train': train_loss,
+                'valid': val_loss
+            }, epoch)
+
+            self.visualizer.log_scalars('Accuracy', {
+                'train': train_acc,
+                'valid': val_acc
+            }, epoch)
+
+            self.visualizer.log_learning_rate(current_lr, epoch)
+
+            # 记录权重分布
+            for name, param in self.named_parameters():
+                self.visualizer.log_histogram(name, param, epoch)
+
+            self._check_early_stop(val_loss, epoch)
+
+            if self.is_early_stop:
+                break
+
             save_checkpoint(self, epoch)
+
+            # 打印训练信息
+            print(f'Epoch {epoch:02d} | '
+                  f'Train Loss: {train_loss:.4f} | '
+                  f'Train Acc: {train_acc*100:.2f}% | '
+                  f'Valid Loss: {val_loss:.4f} | '
+                  f'Valid Acc: {val_acc*100:.2f}% | '
+                  f'LR: {self.optimizer.param_groups[0]["lr"]:.2e} | '
+                  f'No Improve: {self.no_improve_counter} | '
+                  f'Best Valid Loss: {self.best_val_loss:.2f}'
+            )
+
+        save_final_model(self)
+        print(f"🏁 训练完成！模型保存在: {self.experiment_dir}")
+
+
 
