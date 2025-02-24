@@ -16,7 +16,7 @@ class DataSetConfig(BaseConfig):
     # 数据集配置
     DATA_ROOT = os.path.join(MODULE_ROOT, 'data')
     TRAIN_RATIO = 0.85
-    TOTAL_SAMPLES = 20000
+    TOTAL_SAMPLES = 50000
 
 
 @dataclass(frozen=True)

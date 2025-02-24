@@ -9,7 +9,7 @@ from torchvision import transforms
 from tqdm import tqdm
 
 from model.char.config import DataSetConfig
-from model.char.utils.utils import clear_dir, load_fonts
+from model.char.utils.file_util import clear_dir, load_fonts
 
 
 class CaptchaGenerator:
@@ -65,23 +65,15 @@ class CaptchaGenerator:
         return image
 
     def _manual_generate(self, text):
-        height = np.random.randint(30, 120)
-        width = int(height * random.uniform(2.2, 3.5))
+        height = np.random.randint(30, 40)
         bg_color = (random.randint(220, 255), random.randint(220, 255), random.randint(220, 255))
-        image = Image.new('RGB', (width, height), bg_color)
-        draw = ImageDraw.Draw(image)
-
-        # 字符绘制边距
-        margin = int(height * 0.05)  # 5%的边距
-        text_box_width = width - margin * 2
         text_box_height = height
-
+        font_color = (random.randint(0, 100), random.randint(0, 100), random.randint(0, 100))
+        font_size = int(text_box_height * random.uniform(0.65, 0.85))
+        font = ImageFont.truetype(random.choice(self.fonts), font_size)
         # 生成字符图片
         char_imgs = []
         for i, char in enumerate(text):
-            font_color = (random.randint(0, 100), random.randint(0, 100), random.randint(0, 100))
-            font_size = int(text_box_height * random.uniform(0.7, 0.85))
-            font = ImageFont.truetype(random.choice(self.fonts), font_size)
             # 创建字符画布
             char_box_width = math.ceil(font.getlength(char))
             char_box_height = text_box_height
@@ -91,53 +83,29 @@ class CaptchaGenerator:
             char_x = 0
             # y轴方向随机绘制字符
             char_margin_top = (char_box_height - font_size) // 2
-            char_y = char_margin_top + random.uniform(-char_margin_top, char_margin_top)
+            char_y = char_margin_top + random.uniform(-char_margin_top, char_margin_top)*0.1
 
             char_draw.text((char_x, char_y), char, font=font, fill=font_color)
 
             # 旋转
             angle = random.uniform(-15, 15)
-            char_img = char_img.rotate(angle, expand=True)
+            char_img = char_img.rotate(angle, expand=True, resample=Image.Resampling.BILINEAR)
 
             char_imgs.append(char_img)
 
-        total_char_width = sum([char_img.width for char_img in char_imgs])
-        avg_space = (text_box_width - total_char_width) / len(text)
-        avg_width = sum([char_img.width for char_img in char_imgs])
+        # 根据字符宽度确定图像宽度
+        width = sum([char_img.width for char_img in char_imgs])
+        image = Image.new('RGB', (width, height), bg_color)
+        draw = ImageDraw.Draw(image)
         # 向image中添加字符
         x = 0
         for i, char_img in enumerate(char_imgs):
-            x += random.uniform(-avg_space*0.5, avg_space*0.5)
-            # 如果当前图片的宽度超过平均宽度，那么需要减小x的值
-            if char_img.width > avg_width:
-                x -= (char_img.width - avg_width) * 0.5
-            # 如果超出左边界，则x值设为左边界
-            if x < margin:
-                x = margin
-            # 右侧超出忽略margin
-            if x + char_img.width > width:
-                x = width - char_img.width
             image.paste(char_img, (int(x), 0), char_img)
             x += char_img.width
 
-        # 对低分辨率图片进行处理
-        if height < 50:
-            # 放大图片重采样
-            image = image.resize((int(width * 1.5), int(height * 1.5)), Image.Resampling.LANCZOS)
-            # 平滑处理
-            image.filter(ImageFilter.SMOOTH_MORE)
-            # 缩小回原尺寸
-            image = image.resize((width, height), Image.Resampling.LANCZOS)
-
-        # 透视变换
-        image = transforms.RandomPerspective(
-            distortion_scale=0.3,
-            p=0.5,
-            fill=bg_color
-        )(image)
         pixels = image.load()
         # 随机像素噪点
-        for _ in range(int(width * height * 0.02)):  # 2%像素点
+        for _ in range(int(width * height * random.uniform(0, 0.02))):
             x = random.randint(0, width - 1)
             y = random.randint(0, height - 1)
             pixels[x, y] = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
@@ -169,16 +137,19 @@ class CaptchaGenerator:
                       width= 1 if height < 60 else 2)
 
         # # 添加干扰线
-        draw = ImageDraw.Draw(image)
-        for _ in range(random.randint(3, 5)):
+        for _ in range(random.randint(2, 5)):
             control_points = [(random.randint(0, width), random.randint(0, height)) for _ in range(random.randint(2,6))]
             draw_bezier_curve(control_points)
 
-        # 高斯模糊
-        if random.random() < 0.2:
-            image = image.filter(ImageFilter.GaussianBlur(radius=random.uniform(0.8, 1)))
+
+        # 透视变换
+        image = transforms.RandomPerspective(
+            distortion_scale=0.2,
+            p=0.5,
+            fill=bg_color
+        )(image)
         # 颜色抖动
-        if random.random() < 0.8:
+        if random.random() < 0.5:
             image = transforms.ColorJitter(0.2, 0.2, 0.2)(image)
 
         return image

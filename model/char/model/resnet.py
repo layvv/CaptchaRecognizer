@@ -1,12 +1,14 @@
+from collections import defaultdict
+
 import torch
 import torch.nn.functional as F
 from torch import nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
+
 from model.char.config import BaseConfig
 from model.char.utils.file_util import create_experiment_dir, save_final_model, save_checkpoint, log_startup_info
 from model.char.utils.visualizer import Visualizer
-from collections import defaultdict
 
 
 class BasicBlock(nn.Module):
@@ -36,55 +38,49 @@ class BasicBlock(nn.Module):
         return F.relu(out)
 
 
-class ResNet18MultiHead(nn.Module):
-    name = 'resnet18_multi_head'
+class ResNetMultiHead(nn.Module):
+    name = 'resnet_multi_head'
     num_classes = BaseConfig.NUM_CLASSES
     captcha_length = BaseConfig.CAPTCHA_LENGTH
     batch_size = 128
     epochs = 100
-    lr = 1e-3
-    warmup_epochs = 5
+    lr = 3e-4
     min_lr = 1e-6
     num_workers = 4
     pin_memory = True
     persistent_workers = True
     early_stop_patience = 10
     early_stop_delta = 0.002
-    weight_decay = 1e-4
+    weight_decay = 0.05
     conv_dropout = 0.2
     shared_dropout = 0.3
     head_dropout = 0.2
     save_interval = 5
     max_checkpoints = 3
 
-    # 网络结构参数
-    hidden_dim = 512
-    head_hidden_dim = 256
-    stem_channels = 32
-    reduction_ratio = 4
 
     def __init__(self):
         super().__init__()
 
         # 重构特征提取层
         self.stem = nn.Sequential(
-            nn.Conv2d(3, self.stem_channels, 3, stride=1, padding=1, bias=False),
-            nn.BatchNorm2d(self.stem_channels),
+            nn.Conv2d(3, 32, 3, stride=1, padding=1, bias=False),
+            nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         )
 
         # 构建残差块序列
-        self.layer1 = self._make_layer(block=BasicBlock, in_channels=self.stem_channels, out_channels=64, blocks=2, stride=1)
+        self.layer1 = self._make_layer(block=BasicBlock, in_channels=32, out_channels=64, blocks=2, stride=1)
         self.layer2 = self._make_layer(block=BasicBlock, in_channels=64, out_channels=128, blocks=2, stride=2)
         self.layer3 = self._make_layer(block=BasicBlock, in_channels=128, out_channels=256, blocks=2, stride=2)
 
         # 添加SE注意力模块
         self.se = nn.Sequential(
             nn.AdaptiveAvgPool2d(1),
-            nn.Conv2d(256, 256 // self.reduction_ratio, kernel_size=1),
+            nn.Conv2d(256, 64, kernel_size=1),
             nn.ReLU(inplace=True),
-            nn.Conv2d(256 // self.reduction_ratio, 256, kernel_size=1),
+            nn.Conv2d(64, 256, kernel_size=1),
             nn.Sigmoid()
         )
 
@@ -92,8 +88,8 @@ class ResNet18MultiHead(nn.Module):
         self.global_pool = nn.AdaptiveAvgPool2d(1)  # 自适应池化
 
         self.shared_fc = nn.Sequential(
-            nn.Linear(256, self.hidden_dim),  # 直接使用SE模块的输出通道数
-            nn.BatchNorm1d(self.hidden_dim),
+            nn.Linear(256, 512),  # 直接使用SE模块的输出通道数
+            nn.BatchNorm1d(512),
             nn.ReLU(),
             nn.Dropout(self.shared_dropout)
         )
@@ -101,11 +97,11 @@ class ResNet18MultiHead(nn.Module):
         # 多任务头
         self.heads = nn.ModuleList([
             nn.Sequential(
-                nn.Linear(self.hidden_dim, self.head_hidden_dim),
-                nn.BatchNorm1d(self.head_hidden_dim),
+                nn.Linear(512, 256),
+                nn.BatchNorm1d(256),
                 nn.ReLU(),
                 nn.Dropout(self.head_dropout),
-                nn.Linear(self.head_hidden_dim, self.num_classes)
+                nn.Linear(256, self.num_classes)
             ) for _ in range(self.captcha_length)
         ])
 
@@ -141,25 +137,12 @@ class ResNet18MultiHead(nn.Module):
             lr=self.lr,
             weight_decay=self.weight_decay
         )
-
-        # 学习率调度器（线性预热+Plateau衰减）
-        warmup = torch.optim.lr_scheduler.LinearLR(
-            self.optimizer,
-            start_factor=0.01,
-            end_factor=1.0,
-            total_iters=self.warmup_epochs
-        )
-        plateau = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        self.scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
             self.optimizer,
             mode='max',
-            factor=0.5,
-            patience=3,
+            factor=0.3,
+            patience=5,
             min_lr=self.min_lr
-        )
-        self.scheduler = torch.optim.lr_scheduler.SequentialLR(
-            self.optimizer,
-            schedulers=[warmup, plateau],
-            milestones=[self.warmup_epochs]
         )
 
         # 损失函数
@@ -187,7 +170,7 @@ class ResNet18MultiHead(nn.Module):
         self.no_improve_counter = 0
         self.is_early_stop = False
 
-    def _load_data(self, num_samples):
+    def _load_data(self, num_samples=None):
 
         from model.char.data.dataset import CaptchaDataset
 
@@ -208,7 +191,7 @@ class ResNet18MultiHead(nn.Module):
         print("\n╭────────────────── Data Loading ───────────────────╮")
         for i, (k, v) in enumerate(data_info.items()):
             prefix = "│ " if i == 0 else "│ "
-            print(f"{prefix}{k+':':<14} {v}")
+            print(f"{prefix}{k + ':':<14} {v}")
         print("╰───────────────────────────────────────────────────╯\n")
 
         # 数据加载器
@@ -225,7 +208,9 @@ class ResNet18MultiHead(nn.Module):
             self.val_dataset,
             batch_size=self.batch_size,
             shuffle=False,
-            num_workers=self.num_workers
+            num_workers=self.num_workers,
+            pin_memory=self.pin_memory,
+            persistent_workers=self.persistent_workers if self.num_workers > 0 else False,
         )
 
     def _forward_features(self, x):
@@ -254,7 +239,7 @@ class ResNet18MultiHead(nn.Module):
         # 平均每个位置的正确率
         position_acc = [0.0] * self.captcha_length
         # 字符分布统计
-        char_distribution = defaultdict(lambda: {'correct':0, 'total':0})
+        char_distribution = defaultdict(lambda: {'correct': 0, 'total': 0})
 
         with torch.no_grad():
             desc = f'valid Epoch {epoch}/{self.epochs}'
@@ -275,7 +260,7 @@ class ResNet18MultiHead(nn.Module):
 
                 val_bar.set_postfix({
                     'loss': f'{loss.item():.4f}',
-                    'acc': f'{full_acc*100:.2f}%'
+                    'acc': f'{full_acc * 100:.2f}%'
                 })
 
                 all_preds.extend(preds.cpu().numpy())
@@ -338,25 +323,15 @@ class ResNet18MultiHead(nn.Module):
 
             # 计算指标
             total_loss += loss.item()
-            full_acc,_ = self._calculate_accuracy(outputs, labels)
+            full_acc, _ = self._calculate_accuracy(outputs, labels)
             total_acc += full_acc
 
             # 实时更新进度信息
             progress_bar.set_postfix({
                 'loss': f'{loss.item():.4f}',
-                'acc': f'{full_acc*100:.2f}%',
+                'acc': f'{full_acc * 100:.2f}%',
                 'lr': f'{self.optimizer.param_groups[0]["lr"]:.2e}'
             })
-
-            # 记录显存使用到TensorBoard（添加单位转换）
-            if torch.cuda.is_available():
-                # 转换为GB显示
-                max_mem_gb = torch.cuda.max_memory_allocated() / (1024 ** 3)
-                alloc_mem_gb = torch.cuda.memory_allocated() / (1024 ** 3)
-                self.visualizer.log_scalars('Memory', {
-                    'Peak (GB)': max_mem_gb,
-                    'Allocated (GB)': alloc_mem_gb
-                }, epoch)
 
         return total_loss / len(self.train_loader), total_acc / len(self.train_loader)
 
@@ -382,29 +357,22 @@ class ResNet18MultiHead(nn.Module):
 
     def start(self, num_samples=None):
         """训练入口方法"""
-        # 确保模型在正确设备上
-        self._init_training_config()  # 先初始化设备
-        
-        # 初始化训练相关配置
+        self._init_training_config()
+
         self._init_training_state()
 
         self._load_data(num_samples)
 
         log_startup_info(self)
 
-        for epoch in range(1, self.epochs+1):
+        for epoch in range(1, self.epochs + 1):
 
             # 一次epoch内, 训练集的平均损失和准确率
             train_loss, train_acc = self._train(epoch)
 
             # 验证阶段，返回一次epoch内, 验证集的平均损失和准确率
             val_loss, val_acc = self._eval(epoch)
-
-            # 更新学习率
-            if epoch > self.warmup_epochs:
-                self.scheduler.step(val_acc)  # 对ReduceLROnPlateau使用验证损失
-            else:
-                self.scheduler.step()  # 预热阶段不需要参数
+            self.scheduler.step(val_acc)
             current_lr = self.optimizer.param_groups[0]['lr']
 
             self.train_losses.append(train_loss)
@@ -419,9 +387,9 @@ class ResNet18MultiHead(nn.Module):
                 'valid': val_loss
             }, epoch)
 
-            self.visualizer.log_scalars('Accuracy', {
-                'train': train_acc,
-                'valid': val_acc
+            self.visualizer.log_scalars('Accuracy/Train', {
+                'Train': train_acc,
+                'Valid': val_acc
             }, epoch)
 
             self.visualizer.log_learning_rate(current_lr, epoch)
@@ -440,16 +408,13 @@ class ResNet18MultiHead(nn.Module):
             # 打印训练信息
             print(f'Epoch {epoch:02d} | '
                   f'Train Loss: {train_loss:.4f} | '
-                  f'Train Acc: {train_acc*100:.2f}% | '
+                  f'Train Acc: {train_acc * 100:.2f}% | '
                   f'Valid Loss: {val_loss:.4f} | '
-                  f'Valid Acc: {val_acc*100:.2f}% | '
+                  f'Valid Acc: {val_acc * 100:.2f}% | '
                   f'LR: {self.optimizer.param_groups[0]["lr"]:.2e} | '
                   f'No Improve: {self.no_improve_counter} | '
                   f'Best Valid Loss: {self.best_val_loss:.2f}'
-            )
+                  )
 
         save_final_model(self)
         print(f"🏁 训练完成！模型保存在: {self.experiment_dir}")
-
-
-

@@ -1,3 +1,4 @@
+import importlib
 import os
 import torch
 from PIL import Image
@@ -7,9 +8,9 @@ from typing import List, Union
 import argparse
 import sys
 import time
+from pathlib import Path
 
 from model.char.config import BaseConfig
-from model.char.model.resnet18 import ResNet18MultiHead
 from torchvision import transforms
 
 class CaptchaPredictor:
@@ -35,24 +36,24 @@ class CaptchaPredictor:
 
     def _load_model(self, model_path: str):
         try:
-            # 加载配置文件
-            config_path = os.path.join(os.path.dirname(model_path), 'training_config.json')
-            if not os.path.exists(config_path):
-                raise FileNotFoundError(f"配置文件不存在: {config_path}")
+            state = torch.load(model_path, map_location=self.device)
             
-            # 动态创建模型
-            from model.char.model import create_model
-            self.model = create_model(config_path).to(self.device)
+            # 关键字段检查
+            if 'model_class' not in state or 'model_module' not in state:
+                raise ValueError("模型文件缺少必要的元数据，请使用最新版本训练器保存模型")
             
-            # 加载权重
-            state_dict = torch.load(model_path, map_location=self.device)
-            if 'model_state_dict' in state_dict:
-                self.model.load_state_dict(state_dict['model_state_dict'])
-            else:
-                self.model.load_state_dict(state_dict)
+            # 动态导入
+            try:
+                module = importlib.import_module(state['model_module'])
+                model_class = getattr(module, state['model_class'])
+            except (ImportError, AttributeError) as e:
+                raise ImportError(f"无法加载模型类: {str(e)}")
             
+            # 初始化模型
+            self.model = model_class().to(self.device)
+            self.model.load_state_dict(state['model_state_dict'])
             self.model.eval()
-            print(f"✅ 成功加载 {self.model.__class__.__name__} 模型")
+            print(f"✅ 成功加载 {model_class} 模型")
         except Exception as e:
             raise RuntimeError(f"模型加载失败: {str(e)}")
 
@@ -105,8 +106,8 @@ class CaptchaPredictor:
 
 if __name__ == '__main__':
     # 示例用法（用户可修改这两个路径）
-    MODEL_PATH = "path/to/your/model.pth"  # ← 修改为实际模型路径
-    TEST_IMAGE = "path/to/test_image.png"  # ← 修改为测试图片路径
+    MODEL_PATH = "C:\Dev\code\Projects\CaptchaRecognizer\model\char\checkpoint\\2025-02-21_18-49_resnet_multi_head_bs128_lr0.0003/resnet_multi_head.pth"  # ← 修改为实际模型路径
+    TEST_IMAGE = "C:\\Users\yu\Downloads\captcha.jpg"  # ← 修改为测试图片路径
     
     # 创建预测器实例
     try:

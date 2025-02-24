@@ -1,9 +1,11 @@
-from model.char.model.resnet18 import ResNet18MultiHead
+from model.char.model.resnet import ResNetMultiHead
 
 
 def main():
-    ResNet18MultiHead().start(100)
+    ResNetMultiHead().start()
 
 
 if __name__ == '__main__':
     main()
+    # model = ResNetMultiHead()
+    # print(model.__class__.__name__, model.__class__.__module__)
