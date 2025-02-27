@@ -57,7 +57,10 @@ class CaptchaPredictor:
     def _init_image_processing(self):
         """初始化图像处理流程"""
         self.transform = transforms.Compose([
+            # 先调整尺寸
             transforms.Resize(BaseConfig.IMAGE_SIZE[::-1]),
+            # 保持RGB进行必要变换（如果有）
+            # 转为灰度
             transforms.Grayscale(num_output_channels=1),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.5], std=[0.5])

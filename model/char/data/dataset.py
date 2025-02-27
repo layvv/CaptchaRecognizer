@@ -19,7 +19,7 @@ class CaptchaDataset(Dataset):
             if mode == 'train' else sample(self.image_files, int(num_samples - num_samples * DataSetConfig.TRAIN_RATIO))
         
         self.train_transform = transforms.Compose([
-            # 几何变换（在原始尺寸下进行）
+            # 几何变换（保持RGB处理）
             transforms.RandomApply([
                 transforms.RandomAffine(
                     degrees=15,
@@ -34,22 +34,33 @@ class CaptchaDataset(Dataset):
                 p=0.5,
                 fill=255
             ),
-            # 颜色变换
+            
+            # 调整尺寸应放在颜色变换前
+            transforms.Lambda(CaptchaDataset.resize),
+            
+            # 颜色变换（需要RGB图像）
             transforms.ColorJitter(
                 brightness=0.1,
                 contrast=0.1,
-                saturation=0.1,
-                hue=0.05
+                # 移除饱和度和色相调整（灰度后无效）
+                # saturation=0.1,  # 删除
+                # hue=0.05         # 删除
             ),
-            # 调整尺寸和标准化
-            transforms.Lambda(CaptchaDataset.resize),
+            
+            # 转为灰度
             transforms.Grayscale(num_output_channels=1),
+            
+            # 后续处理
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.5], std=[0.5])
         ])
         
         self.valid_transform = transforms.Compose([
+            # 调整尺寸
             transforms.Lambda(CaptchaDataset.resize),
+            # 颜色变换（需要RGB图像）
+            transforms.ColorJitter(brightness=0.1, contrast=0.1),
+            # 最后转为灰度
             transforms.Grayscale(num_output_channels=1),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.5], std=[0.5])
