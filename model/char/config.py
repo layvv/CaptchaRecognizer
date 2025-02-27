@@ -9,21 +9,20 @@ class BaseConfig:
     CHAR_SET = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
     NUM_CLASSES = len(CHAR_SET)
     CAPTCHA_LENGTH = 4
-    IMAGE_SIZE = (160, 60)
+    IMAGE_SIZE = (120, 40)
 
 @dataclass(frozen=True)
 class DataSetConfig(BaseConfig):
     # 数据集配置
     DATA_ROOT = os.path.join(MODULE_ROOT, 'data')
-    TRAIN_RATIO = 0.85
-    TOTAL_SAMPLES = 50000
-
+    TRAIN_RATIO = 0.8
+    TOTAL_SAMPLES = 60000
 
 @dataclass(frozen=True)
 class CheckpointConfig(BaseConfig):
     # 检查点配置
     CHECKPOINT_ROOT = os.path.join(MODULE_ROOT, 'checkpoint')
-    SAVE_INTERVAL = 10
+    FINAL_DIR = os.path.join(MODULE_ROOT, 'final')
     EXPERIMENT_FORMAT = "{timestamp}_{model_name}_bs{batch_size}_lr{lr}"
 
 

@@ -1,17 +1,14 @@
 import importlib
+import io
 import os
+from typing import List, Union
+
 import torch
 from PIL import Image
-import io
-from datetime import datetime
-from typing import List, Union
-import argparse
-import sys
-import time
-from pathlib import Path
+from torchvision import transforms
 
 from model.char.config import BaseConfig
-from torchvision import transforms
+
 
 class CaptchaPredictor:
     def __init__(self, model_path: str):
@@ -106,8 +103,8 @@ class CaptchaPredictor:
 
 if __name__ == '__main__':
     # 示例用法（用户可修改这两个路径）
-    MODEL_PATH = "C:\Dev\code\Projects\CaptchaRecognizer\model\char\checkpoint\\2025-02-21_18-49_resnet_multi_head_bs128_lr0.0003/resnet_multi_head.pth"  # ← 修改为实际模型路径
-    TEST_IMAGE = "C:\\Users\yu\Downloads\captcha.jpg"  # ← 修改为测试图片路径
+    MODEL_PATH = "C:\Dev\code\Projects\CaptchaRecognizer\model\char\\final\\resnet_multi_head.pth"  # ← 修改为实际模型路径
+    TEST_IMAGE = "C:\\Users\yu\Downloads\captcha (3).jpg"  # ← 修改为测试图片路径
     
     # 创建预测器实例
     try:

@@ -7,7 +7,8 @@ from torch.utils.data import DataLoader
 from tqdm import tqdm
 
 from model.char.config import BaseConfig
-from model.char.utils.file_util import create_experiment_dir, save_final_model, save_checkpoint, log_startup_info
+from model.char.utils.file_util import create_experiment_dir, save_final_model, save_checkpoint, log_startup_info, \
+    save_manager
 from model.char.utils.visualizer import Visualizer
 
 
@@ -43,8 +44,8 @@ class ResNetMultiHead(nn.Module):
     num_classes = BaseConfig.NUM_CLASSES
     captcha_length = BaseConfig.CAPTCHA_LENGTH
     batch_size = 128
-    epochs = 100
-    lr = 3e-4
+    epochs = 150
+    lr = 1e-3
     min_lr = 1e-6
     num_workers = 4
     pin_memory = True
@@ -55,8 +56,6 @@ class ResNetMultiHead(nn.Module):
     conv_dropout = 0.2
     shared_dropout = 0.3
     head_dropout = 0.2
-    save_interval = 5
-    max_checkpoints = 3
 
 
     def __init__(self):
@@ -148,6 +147,19 @@ class ResNetMultiHead(nn.Module):
         # 损失函数
         self.criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
 
+    def _init_training_state(self):
+        """训练状态初始化"""
+        self.best_val_loss = float('inf')
+        self.best_val_acc = 0.0
+        self.train_losses = []
+        self.val_losses = []
+        self.train_accs = []
+        self.val_accs = []
+        self.learning_rates = []
+        self.no_improve_counter = 0
+        self.is_early_stop = False
+        # 验证集字符统计
+        self.val_char_distribution = defaultdict(lambda: {'total': 0, 'correct': 0})
         # 实验目录
         self.experiment_dir = create_experiment_dir(
             model_name=self.name,
@@ -156,19 +168,7 @@ class ResNetMultiHead(nn.Module):
                 'lr': self.lr,
             }
         )
-
         self.visualizer = Visualizer(self.experiment_dir)
-
-    def _init_training_state(self):
-        """训练状态初始化"""
-        self.best_val_loss = float('inf')
-        self.train_losses = []
-        self.val_losses = []
-        self.train_accs = []
-        self.val_accs = []
-        self.learning_rates = []
-        self.no_improve_counter = 0
-        self.is_early_stop = False
 
     def _load_data(self, num_samples=None):
 
@@ -213,6 +213,15 @@ class ResNetMultiHead(nn.Module):
             persistent_workers=self.persistent_workers if self.num_workers > 0 else False,
         )
 
+        # 在加载验证集后统计总字符数（只执行一次）
+        for _, labels in tqdm(DataLoader(self.val_dataset, batch_size=self.batch_size), 
+                            desc="统计验证集字符", total=len(self.val_dataset)//self.batch_size):
+            for i in range(labels.size(0)):
+                for j in range(labels.size(1)):
+                    char_idx = labels[i][j].item()
+                    char = BaseConfig.CHAR_SET[char_idx]
+                    self.val_char_distribution[char]['total'] += 1
+
     def _forward_features(self, x):
         x = self.stem(x)
         x = self.layer1(x)
@@ -238,8 +247,11 @@ class ResNetMultiHead(nn.Module):
         all_preds = []
         # 平均每个位置的正确率
         position_acc = [0.0] * self.captcha_length
-        # 字符分布统计
+        # 字符分布统计（只统计正确数）
         char_distribution = defaultdict(lambda: {'correct': 0, 'total': 0})
+        # 初始化时使用预统计的总数
+        for char, stats in self.val_char_distribution.items():
+            char_distribution[char]['total'] = stats['total']
 
         with torch.no_grad():
             desc = f'valid Epoch {epoch}/{self.epochs}'
@@ -266,12 +278,11 @@ class ResNetMultiHead(nn.Module):
                 all_preds.extend(preds.cpu().numpy())
                 all_labels.extend(labels.cpu().numpy())
 
-                # 统计字符分布
+                # 统计字符分布（只更新正确数）
                 for i in range(labels.size(0)):
                     for j in range(labels.size(1)):
                         char_idx = labels[i][j].item()
                         char = BaseConfig.CHAR_SET[char_idx]
-                        char_distribution[char]['total'] += 1
                         if preds[i][j] == labels[i][j]:
                             char_distribution[char]['correct'] += 1
 
@@ -380,6 +391,7 @@ class ResNetMultiHead(nn.Module):
             self.val_losses.append(val_loss)
             self.val_accs.append(val_acc)
             self.learning_rates.append(current_lr)
+            self.best_val_acc = max(self.best_val_acc, val_acc)
 
             # 记录标量数据
             self.visualizer.log_scalars('Loss', {
@@ -387,9 +399,9 @@ class ResNetMultiHead(nn.Module):
                 'valid': val_loss
             }, epoch)
 
-            self.visualizer.log_scalars('Accuracy/Train', {
-                'Train': train_acc,
-                'Valid': val_acc
+            self.visualizer.log_scalars('Accuracy', {
+                'train': train_acc,
+                'valid': val_acc
             }, epoch)
 
             self.visualizer.log_learning_rate(current_lr, epoch)
@@ -398,23 +410,24 @@ class ResNetMultiHead(nn.Module):
             for name, param in self.named_parameters():
                 self.visualizer.log_histogram(name, param, epoch)
 
+            save_checkpoint(self, epoch)
+
             self._check_early_stop(val_loss, epoch)
 
             if self.is_early_stop:
                 break
 
-            save_checkpoint(self, epoch)
-
             # 打印训练信息
             print(f'Epoch {epoch:02d} | '
-                  f'Train Loss: {train_loss:.4f} | '
-                  f'Train Acc: {train_acc * 100:.2f}% | '
-                  f'Valid Loss: {val_loss:.4f} | '
-                  f'Valid Acc: {val_acc * 100:.2f}% | '
+                  f'Train Loss/Acc: {train_loss:.4f} / {train_acc * 100:.2f}% | '
+                  f'Valid Loss/Acc: {val_loss:.4f} / {val_acc * 100:.2f}% | '
                   f'LR: {self.optimizer.param_groups[0]["lr"]:.2e} | '
                   f'No Improve: {self.no_improve_counter} | '
-                  f'Best Valid Loss: {self.best_val_loss:.2f}'
+                  f'Best Loss: {self.best_val_loss:.2f} | '
+                  f'Best Acc: {self.best_val_acc * 100:.2f}%'
                   )
-
         save_final_model(self)
-        print(f"🏁 训练完成！模型保存在: {self.experiment_dir}")
+        
+        # 在训练结束后添加
+        save_manager.shutdown()  # 确保所有任务完成
+        print(f"🏁 训练完成！")

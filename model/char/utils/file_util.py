@@ -1,12 +1,11 @@
 import os
 import shutil
-import matplotlib.pyplot as plt
+import threading
+from datetime import datetime
+from queue import Queue
+
 import psutil
 import torch
-from torch.utils.tensorboard import SummaryWriter
-from datetime import datetime
-import numpy as np
-
 from PIL import ImageFont
 
 from model.char.config import CheckpointConfig, BaseConfig
@@ -51,76 +50,94 @@ def create_experiment_dir(model_name, model_params):
     return exp_dir
 
 
-def save_checkpoint(model, epoch):
-    """检查点保存"""
-    if epoch % model.save_interval == 0 or epoch == model.epochs:
-        # 异步保存
-        import threading
-        save_thread = threading.Thread(
-            target=_save_checkpoint,
-            args=(model, epoch,)
-        )
-        save_thread.start()
+# 全局保存管理类
+class SaveManager:
+    def __init__(self):
+        self.save_queue = Queue()
+        self.save_thread = None
+        self.lock = threading.Lock()
+        self.running = True  # 新增运行状态标志
 
+    def add_task(self, task):
+        with self.lock:
+            # 确保线程持续运行
+            if not self.save_thread or not self.save_thread.is_alive():
+                self.save_thread = threading.Thread(target=self._process_queue, daemon=True)
+                self.save_thread.start()
+            self.save_queue.put(task)
+
+    def _process_queue(self):
+        while self.running or not self.save_queue.empty():  # 修改循环条件
+            try:
+                task = self.save_queue.get()
+                task()
+            except Exception as e:
+                print(f"❌ 保存任务执行失败: {str(e)}")
+            finally:
+                self.save_queue.task_done()
+
+    def shutdown(self):
+        self.running = False
+        if self.save_thread:
+            self.save_thread.join()
+
+save_manager = SaveManager()
+
+def save_checkpoint(model, epoch):
+    """保存准确率更高的模型"""
+    if model.val_accs[-1] < model.best_val_acc:
+        return
+    
+    # 将保存任务加入队列
+    save_manager.add_task(lambda: _save_checkpoint(model, epoch))
+
+def save_final_model(model):
+    """将最终模型保存任务加入队列"""
+    save_manager.add_task(lambda: _do_final_save(model))
+
+def _do_final_save(model):
+    model_path = None
+    for file in os.listdir(model.experiment_dir):
+        if file.endswith('.pth'):
+            model_path = os.path.join(model.experiment_dir, file)
+            break
+    if not model_path:
+        print("⚠️ 未找到任何检查点文件！")  # 调试日志
+        return
+    state = torch.load(model_path, map_location=torch.device("cuda" if torch.cuda.is_available() else "cpu"))
+    # 清理不需要的键
+    for key in ['optimizer_state_dict', 'scheduler_state_dict', 'epoch']:
+        if key in state:
+            del state[key]
+    
+    final_model_path = os.path.join(CheckpointConfig.FINAL_DIR, f'{model.name}.pth')
+    torch.save(state, final_model_path)
+    print(f"💾 最终模型已保存: {final_model_path}")  # 调试日志
 
 def _save_checkpoint(model, epoch):
+    # 移除旧模型
+    model_files = [f for f in os.listdir(model.experiment_dir) if f.endswith('.pth')]
+    for file in model_files:
+        os.remove(os.path.join(model.experiment_dir, file))
+
+    # 保存新检查点
     checkpoint_path = os.path.join(
         model.experiment_dir,
-        f'{model.name}_epoch{epoch}.pth'
+        f'{model.name}_epoch{epoch}_acc{model.best_val_acc * 100:.2f}.pth'
     )
-    # 保存完整训练状态
-    torch.save({
+    
+    state = {
         'model_class' : model.__class__.__name__,
         'model_module': model.__class__.__module__,
         'epoch': epoch,
         'model_state_dict': model.state_dict(),
         'optimizer_state_dict': model.optimizer.state_dict(),
         'scheduler_state_dict': model.scheduler.state_dict(),
-    }, checkpoint_path)
-
-    cleanup_old_checkpoints(model)
-
-
-def cleanup_old_checkpoints(model):
-    """修正后的检查点清理逻辑"""
-    # 获取所有模型检查点文件
-    checkpoints = [
-        f for f in os.listdir(model.experiment_dir)
-        if f.endswith('.pth')
-    ]
-
-    # 按epoch排序（提取文件名中的epoch数字）
-    checkpoints.sort(key=lambda x: int(x.split('_epoch')[1].split('.')[0]))
-
-    # 保留最新的max_checkpoints个
-    while len(checkpoints) > model.max_checkpoints:
-        old_checkpoint = checkpoints.pop(0)
-        os.remove(os.path.join(model.experiment_dir, old_checkpoint))
-        print(f"🧹 已清理旧检查点: {old_checkpoint}")
-
-
-def cleanup_intermediate_checkpoints(experiment_dir):
-    """清理中间检查点"""
-    for f in os.listdir(experiment_dir):
-        if f.endswith('.pth') and 'epoch' in f:
-            os.remove(os.path.join(experiment_dir, f))
-            print(f"🧹 清理中间检查点: {f}")
-
-
-def save_final_model(model):
-    # 保存最终模型
-    final_model_path = os.path.join(model.experiment_dir, f'{model.name}.pth')
-    torch.save({
-        'model_class' : model.__class__.__name__,
-        'model_module': model.__class__.__module__,
-        'model_state_dict': model.state_dict(),
-    }, final_model_path)
-
+    }
+    torch.save(state, checkpoint_path)
+    
     # 保存配置文件
     save_training_config(model)
-
-    # 清理中间检查点
-    cleanup_intermediate_checkpoints(model.experiment_dir)
 
 
 def save_training_config(model):
@@ -135,8 +152,6 @@ def save_training_config(model):
             'head_dropout': model.head_dropout,
             'captcha_length': model.captcha_length,
             'num_classes': model.num_classes,
-            'se_ratio': getattr(model, 'se_ratio', 0.25),
-            'attention_layers': getattr(model, 'attention_layers', []),
         },
         'training': {
             'batch_size': model.batch_size,
@@ -145,11 +160,11 @@ def save_training_config(model):
             'weight_decay': model.weight_decay,
             'early_stop_patience': model.early_stop_patience,
             'early_stop_delta': model.early_stop_delta,
-            'final_metrics': {
-                'best_val_loss': model.best_val_loss,
-                'best_val_acc': max(model.val_accs) if model.val_accs else 0,
-                'total_epochs': len(model.train_losses)
-            }
+            'best_val_loss': model.best_val_loss,
+            'best_val_acc': model.best_val_acc,
+            'total_epochs': len(model.train_losses),
+            'valid_accs': model.val_accs,
+            'valid_losses': model.val_losses,
         },
         'dataset': {
             'IMAGE_SIZE': BaseConfig.IMAGE_SIZE,
@@ -167,7 +182,6 @@ def save_training_config(model):
     import json
     with open(config_path, 'w') as f:
         json.dump(config, f, indent=2, ensure_ascii=False)
-    print(f"📄 配置文件已保存至: {config_path}")
 
 
 def log_startup_info(model):

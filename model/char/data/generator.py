@@ -1,9 +1,9 @@
+import math
 import os
 import random
-import math
 
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont, ImageFilter
+from PIL import Image, ImageDraw, ImageFont
 from captcha.image import ImageCaptcha
 from torchvision import transforms
 from tqdm import tqdm
@@ -36,7 +36,7 @@ class CaptchaGenerator:
 
     def _generate_batch(self, mode, start, num_samples):
         """生成指定模式的批次数据"""
-        save_path = os.path.join(DataSetConfig.DATA_ROOT, mode)
+        save_path: str = str(os.path.join(DataSetConfig.DATA_ROOT, mode))
 
         for i in tqdm(range(start, start + num_samples), desc=f'Generating {mode}', unit='img'):
             text = ''.join(random.choices(self.char_set, k=self.length))
@@ -65,7 +65,7 @@ class CaptchaGenerator:
         return image
 
     def _manual_generate(self, text):
-        height = np.random.randint(30, 40)
+        height = np.random.randint(30, 60)
         bg_color = (random.randint(220, 255), random.randint(220, 255), random.randint(220, 255))
         text_box_height = height
         font_color = (random.randint(0, 100), random.randint(0, 100), random.randint(0, 100))
@@ -94,14 +94,15 @@ class CaptchaGenerator:
             char_imgs.append(char_img)
 
         # 根据字符宽度确定图像宽度
-        width = sum([char_img.width for char_img in char_imgs])
+        char_space = random.randint(len(text), 5 * len(text))
+        width = sum([char_img.width for char_img in char_imgs]) + char_space
         image = Image.new('RGB', (width, height), bg_color)
         draw = ImageDraw.Draw(image)
         # 向image中添加字符
         x = 0
         for i, char_img in enumerate(char_imgs):
             image.paste(char_img, (int(x), 0), char_img)
-            x += char_img.width
+            x += char_img.width + char_space/len(text)
 
         pixels = image.load()
         # 随机像素噪点
@@ -141,13 +142,6 @@ class CaptchaGenerator:
             control_points = [(random.randint(0, width), random.randint(0, height)) for _ in range(random.randint(2,6))]
             draw_bezier_curve(control_points)
 
-
-        # 透视变换
-        image = transforms.RandomPerspective(
-            distortion_scale=0.2,
-            p=0.5,
-            fill=bg_color
-        )(image)
         # 颜色抖动
         if random.random() < 0.5:
             image = transforms.ColorJitter(0.2, 0.2, 0.2)(image)

@@ -195,7 +195,7 @@ class Visualizer:
         ax1.legend(lines, labels, loc='upper left', fontsize=9)
         
         # 图表装饰
-        plt.title(f'Character Performance (Accuracy & Count Overlay, Total Samples: {sum(totals):,})',
+        plt.title(f'Character Performance (Accuracy & Count, Total Chars: {sum(totals):,})',
                  pad=20, fontsize=14)
         plt.tight_layout(pad=3)
         return fig

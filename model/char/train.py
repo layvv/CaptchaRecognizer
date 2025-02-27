@@ -1,4 +1,4 @@
-from model.char.model.resnet import ResNetMultiHead
+from model.char.define.resnet import ResNetMultiHead
 
 
 def main():

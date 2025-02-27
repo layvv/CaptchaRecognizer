@@ -14,7 +14,7 @@ class CaptchaDataset(Dataset):
         self.mode = mode
         self.image_dir = DataSetConfig.DATA_ROOT + '/' + mode
         self.image_files = [f for f in os.listdir(self.image_dir) if f.endswith('.png')]
-        if num_samples and num_samples < len(self.image_files):
+        if num_samples and num_samples < DataSetConfig.TOTAL_SAMPLES:
             self.image_files = sample(self.image_files, int(num_samples * DataSetConfig.TRAIN_RATIO)) \
             if mode == 'train' else sample(self.image_files, int(num_samples - num_samples * DataSetConfig.TRAIN_RATIO))
         
@@ -24,7 +24,7 @@ class CaptchaDataset(Dataset):
                 transforms.RandomAffine(
                     degrees=15,
                     translate=(0.1, 0.1),
-                    scale=(0.9, 1.1),
+                    scale=(0.8, 1.2),
                     shear=10,
                     fill=255
                 )
