@@ -58,8 +58,9 @@ class CaptchaPredictor:
         """初始化图像处理流程"""
         self.transform = transforms.Compose([
             transforms.Resize(BaseConfig.IMAGE_SIZE[::-1]),
+            transforms.Grayscale(num_output_channels=1),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            transforms.Normalize(mean=[0.5], std=[0.5])
         ])
         self.char_set = BaseConfig.CHAR_SET
         print(f"📊 字符集加载完成，共{len(self.char_set)}个字符")
@@ -86,7 +87,7 @@ class CaptchaPredictor:
                 raise ValueError("不支持的输入类型，请提供文件路径或字节流")
 
             # 转换为Tensor
-            image = Image.open(io.BytesIO(image_bytes)).convert('RGB')
+            image = Image.open(io.BytesIO(image_bytes)).convert('L')
             tensor = self.transform(image).unsqueeze(0).to(self.device)
 
             # 执行预测

@@ -43,14 +43,16 @@ class CaptchaDataset(Dataset):
             ),
             # 调整尺寸和标准化
             transforms.Lambda(CaptchaDataset.resize),
+            transforms.Grayscale(num_output_channels=1),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            transforms.Normalize(mean=[0.5], std=[0.5])
         ])
         
         self.valid_transform = transforms.Compose([
             transforms.Lambda(CaptchaDataset.resize),
+            transforms.Grayscale(num_output_channels=1),
             transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+            transforms.Normalize(mean=[0.5], std=[0.5])
         ])
 
     def __len__(self):
@@ -58,7 +60,8 @@ class CaptchaDataset(Dataset):
 
     def __getitem__(self, idx):
         image_path = os.path.join(self.image_dir, self.image_files[idx])
-        image = Image.open(image_path).convert('RGB')
+        image = Image.open(image_path).convert('L')
+        
         label_str = image_path.split('_')[1].split('.')[0]
         
         # 转换标签为数字序列
@@ -88,7 +91,7 @@ class CaptchaDataset(Dataset):
         img_resized = img.resize((new_width, target_height), Image.Resampling.BILINEAR)
 
         # 创建一个新的图像，并用指定的颜色填充
-        new_img = Image.new('RGB', (target_width, target_height), (255,255,255))
+        new_img = Image.new('L', (target_width, target_height), 255)
 
         if new_width <= target_width:
             # 如果新宽度小于或等于目标宽度，则居中填充

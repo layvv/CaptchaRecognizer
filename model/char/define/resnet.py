@@ -63,7 +63,7 @@ class ResNetMultiHead(nn.Module):
 
         # 重构特征提取层
         self.stem = nn.Sequential(
-            nn.Conv2d(3, 32, 3, stride=1, padding=1, bias=False),
+            nn.Conv2d(1, 32, 3, stride=1, padding=1, bias=False),
             nn.BatchNorm2d(32),
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
