@@ -1,6 +1,7 @@
 # Byte-compiled / optimized / DLL files
 model/char/data/train
 model/char/data/valid
+model/char/final
 # 忽略检查点目录下的临时文件
 model/char/checkpoint/
 .cursorignore
