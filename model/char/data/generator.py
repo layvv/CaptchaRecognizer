@@ -53,7 +53,7 @@ class CaptchaGenerator:
         return self._manual_generate(text)
 
     def _lib_generate(self, text):
-        height = np.random.randint(50, 100)
+        height = np.random.randint(40, 80)
         width = int(height * random.uniform(2.5, 3.5))
         # 库生成方法保持纯净，不应用任何增强
         image = ImageCaptcha(

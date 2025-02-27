@@ -42,13 +42,13 @@ class CaptchaDataset(Dataset):
                 hue=0.05
             ),
             # 调整尺寸和标准化
-            transforms.Resize(BaseConfig.IMAGE_SIZE[::-1], antialias=True),
+            transforms.Lambda(CaptchaDataset.resize),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
         
         self.valid_transform = transforms.Compose([
-            transforms.Resize(BaseConfig.IMAGE_SIZE[::-1]),
+            transforms.Lambda(CaptchaDataset.resize),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
         ])
@@ -71,3 +71,34 @@ class CaptchaDataset(Dataset):
             image = self.valid_transform(image)
         
         return image, torch.tensor(label)
+
+    @staticmethod
+    def resize(img):
+        """
+        调整图像尺寸并填充至指定大小
+        """
+        # 获取原始图像尺寸
+        original_width, original_height = img.size
+        (target_width, target_height) = BaseConfig.IMAGE_SIZE
+
+        # 计算新的宽度，保持宽高比不变
+        new_width = int(original_width * (target_height / original_height))
+
+        # 调整图像大小
+        img_resized = img.resize((new_width, target_height), Image.Resampling.BILINEAR)
+
+        # 创建一个新的图像，并用指定的颜色填充
+        new_img = Image.new('RGB', (target_width, target_height), (255,255,255))
+
+        if new_width <= target_width:
+            # 如果新宽度小于或等于目标宽度，则居中填充
+            paste_position = ((target_width - new_width) // 2, 0)
+            new_img.paste(img_resized, paste_position)
+        else:
+            # 如果新宽度大于目标宽度，则从中间裁剪
+            left = (new_width - target_width) // 2
+            right = left + target_width
+            img_cropped = img_resized.crop((left, 0, right, target_height))
+            new_img.paste(img_cropped, (0, 0))
+
+        return new_img
