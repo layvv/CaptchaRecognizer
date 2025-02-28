@@ -88,9 +88,7 @@ class CaptchaDataset(Dataset):
 
     @staticmethod
     def resize(img):
-        """
-        调整图像尺寸并填充至指定大小
-        """
+        """调整图像尺寸并填充至指定大小（动态背景色）"""
         # 获取原始图像尺寸
         original_width, original_height = img.size
         (target_width, target_height) = BaseConfig.IMAGE_SIZE
@@ -101,8 +99,35 @@ class CaptchaDataset(Dataset):
         # 调整图像大小
         img_resized = img.resize((new_width, target_height), Image.Resampling.BILINEAR)
 
-        # 创建一个新的图像，并用指定的颜色填充
-        new_img = Image.new('L', (target_width, target_height), 255)
+        # 动态获取背景色（优化采样方式）
+        def get_background_color(image):
+            """通过边缘采样获取背景色"""
+            # 采样策略：四边各取5个像素点（间隔采样）
+            samples = []
+            width, height = image.size
+            
+            # 上边沿
+            for x in range(0, width, max(1, width//5))[:5]:
+                samples.append(image.getpixel((x, 0)))
+            # 下边沿
+            for x in range(0, width, max(1, width//5))[:5]:
+                samples.append(image.getpixel((x, height-1)))
+            # 左边沿
+            for y in range(0, height, max(1, height//5))[:5]:
+                samples.append(image.getpixel((0, y)))
+            # 右边沿
+            for y in range(0, height, max(1, height//5))[:5]:
+                samples.append(image.getpixel((width-1, y)))
+
+            # 统计最常出现的颜色（考虑灰度值）
+            from collections import Counter
+            color_counter = Counter(samples)
+            return color_counter.most_common(1)[0][0]
+
+        bg_color = get_background_color(img)  # 获取原始图像背景色
+
+        # 创建新图像并填充
+        new_img = Image.new('L', (target_width, target_height), bg_color)
 
         if new_width <= target_width:
             # 如果新宽度小于或等于目标宽度，则居中填充
