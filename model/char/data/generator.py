@@ -65,7 +65,7 @@ class CaptchaGenerator:
         return image
 
     def _manual_generate(self, text):
-        height = np.random.randint(30, 60)
+        height = np.random.randint(30, 50)
         bg_color = (random.randint(220, 255), random.randint(220, 255), random.randint(220, 255))
         text_box_height = height
         font_color = (random.randint(0, 100), random.randint(0, 100), random.randint(0, 100))

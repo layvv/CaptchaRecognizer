@@ -1,7 +1,5 @@
 import {CharDetector, } from "./detector/char";
 
-
-
 export class CaptchaScanner{
     constructor(){
         this.detectors = [

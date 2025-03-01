@@ -8,6 +8,7 @@ from PIL import Image
 from torchvision import transforms
 
 from model.char.config import BaseConfig
+from model.char.data.dataset import CaptchaDataset
 
 
 class CaptchaPredictor:
@@ -58,10 +59,7 @@ class CaptchaPredictor:
         """初始化图像处理流程"""
         self.transform = transforms.Compose([
             # 先调整尺寸
-            transforms.Resize(BaseConfig.IMAGE_SIZE[::-1]),
-            # 保持RGB进行必要变换（如果有）
-            # 转为灰度
-            transforms.Grayscale(num_output_channels=1),
+            transforms.Lambda(CaptchaDataset.resize),
             transforms.ToTensor(),
             transforms.Normalize(mean=[0.5], std=[0.5])
         ])
@@ -105,10 +103,23 @@ class CaptchaPredictor:
         """解析多任务头输出"""
         return ''.join([self.char_set[head.argmax().item()] for head in outputs])
 
+class DynamicFillRandomAffine(transforms.RandomAffine):
+    """自定义随机仿射变换，动态获取填充色"""
+    def __call__(self, img):
+        # 从图像元数据获取背景色
+        self.fill = img.info.get('bg_color', 255)
+        return super().__call__(img)
+
+class DynamicFillRandomPerspective(transforms.RandomPerspective):
+    """自定义随机透视变换，动态获取填充色"""
+    def __call__(self, img):
+        self.fill = img.info.get('bg_color', 255)
+        return super().__call__(img)
+
 if __name__ == '__main__':
     # 示例用法（用户可修改这两个路径）
     MODEL_PATH = "C:\Dev\code\Projects\CaptchaRecognizer\model\char\\final\\resnet_multi_head.pth"  # ← 修改为实际模型路径
-    TEST_IMAGE = "C:\\Users\yu\Downloads\captcha (3).jpg"  # ← 修改为测试图片路径
+    TEST_IMAGE = "C:\\Users\yu\Downloads\captcha (1).jpg"  # ← 修改为测试图片路径
     
     # 创建预测器实例
     try:
@@ -117,3 +128,22 @@ if __name__ == '__main__':
         print(f"\n🔮 识别结果: {result}")
     except Exception as e:
         print(f"❌ 错误: {str(e)}")
+
+    # img = Image.open(TEST_IMAGE).convert('L')
+    # trans = transforms.Compose([
+    #     transforms.Lambda(CaptchaDataset.resize),  # 必须放在第一个位置确保背景色信息存在
+    #     DynamicFillRandomAffine(
+    #         degrees=5,
+    #         translate=(0.05, 0.05),
+    #         scale=(0.8, 1.2),
+    #         interpolation=transforms.InterpolationMode.BILINEAR,
+    #     ),
+    #     DynamicFillRandomPerspective(
+    #         distortion_scale=0.1
+    #     ),
+    #     transforms.ColorJitter(brightness=0.2, contrast=0.2),
+    #     # transforms.ToTensor(),
+    #     # transforms.Normalize(mean=[0.5], std=[0.5])
+    # ])
+    # img = trans(img)
+    # img.show()
