@@ -9,7 +9,7 @@ class BaseConfig:
     CHAR_SET = '0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ'
     NUM_CLASSES = len(CHAR_SET)
     CAPTCHA_LENGTH = 4
-    IMAGE_SIZE = (160, 50)
+    IMAGE_SIZE = (120, 40)
 
 @dataclass(frozen=True)
 class DataSetConfig(BaseConfig):

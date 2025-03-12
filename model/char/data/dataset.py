@@ -108,5 +108,5 @@ class CaptchaDataset(Dataset):
             new_img.paste(img_resized.crop(crop_area), (0, 0))
 
         # 存储背景色到元数据
-        new_img.info['bg_color'] = bg_color
+        # new_img.info['bg_color'] = bg_color
         return new_img

@@ -138,8 +138,8 @@ class CaptchaGenerator:
                       width= 1 if height < 60 else 2)
 
         # # 添加干扰线
-        for _ in range(random.randint(2, 5)):
-            control_points = [(random.randint(0, width), random.randint(0, height)) for _ in range(random.randint(2,6))]
+        for _ in range(random.randint(0, 5)):
+            control_points = [(random.randint(0, width), random.randint(0, height)) for _ in range(random.randint(2,5))]
             draw_bezier_curve(control_points)
 
         # 颜色抖动

@@ -128,7 +128,7 @@ if __name__ == '__main__':
         print(f"\n🔮 识别结果: {result}")
     except Exception as e:
         print(f"❌ 错误: {str(e)}")
-
+    #
     # img = Image.open(TEST_IMAGE).convert('L')
     # trans = transforms.Compose([
     #     transforms.Lambda(CaptchaDataset.resize),  # 必须放在第一个位置确保背景色信息存在
