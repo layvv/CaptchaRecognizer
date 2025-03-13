@@ -27,6 +27,10 @@ class BaseModel(nn.Module, ABC):
 
         # 使用可用的最佳设备
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        # 初始化权重
+        self._init_weights()
+        
         # 将模型移至设备
         self.to(self.device)
     
@@ -59,6 +63,7 @@ class BaseModel(nn.Module, ABC):
         pass
     
     def _init_training_state(self) -> None:
+        """配置优化器、调度器和训练状态"""
         # 初始化训练状态
         self.current_epoch = 0
         self.best_val_acc = 0.0
@@ -70,13 +75,7 @@ class BaseModel(nn.Module, ABC):
         self.val_losses = []
         self.val_accs = []
         self.learning_rates = []
-        self.current_epoch = None
-        self.early_stop = None
-        self.no_improve_count = None
-        self.best_val_loss = None
-        self.best_val_acc = None
 
-        """配置优化器和调度器"""
         # 优化器
         if config.OPTIMIZER == 'adam':
             self.optimizer = torch.optim.Adam(
@@ -137,8 +136,6 @@ class BaseModel(nn.Module, ABC):
 
         # 初始化指标跟踪器
         self.metrics_tracker = MetricsTracker(self.experiment_dir, self.model_type)
-
-
     
     def train_model(self, num_samples: Optional[int] = None) -> None:
         """训练模型
@@ -146,9 +143,13 @@ class BaseModel(nn.Module, ABC):
         Args:
             num_samples: 限制样本数量
         """
-        # 初始化
+        # 初始化训练状态
         self._init_training_state()
+        
+        # 确保模型在正确的设备上
+        self.to(self.device)
 
+        # 加载数据
         self._load_data(num_samples)
         
         # 训练循环
@@ -361,6 +362,7 @@ class BaseModel(nn.Module, ABC):
         return val_loss, val_acc
 
     def _load_data(self, num_samples: Optional[int] = None):
+        """加载训练和验证数据"""
         # 加载数据集
         train_dataset = CaptchaDataset(mode='train', num_samples=num_samples)
         valid_dataset = CaptchaDataset(mode='valid', num_samples=num_samples)
