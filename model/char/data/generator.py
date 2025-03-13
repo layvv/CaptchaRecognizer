@@ -1,153 +1,159 @@
-import math
 import os
 import random
+import math
+from typing import List, Tuple, Optional
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFont
-from captcha.image import ImageCaptcha
-from torchvision import transforms
 from tqdm import tqdm
 
-from model.char.config import DataSetConfig
-from model.char.utils.file_util import clear_dir, load_fonts
+from model.char_input.config import config
 
 
 class CaptchaGenerator:
-    """统一验证码生成器"""
-
+    """验证码生成器"""
+    
     def __init__(self):
-        # 初始化配置
-        self.fonts = load_fonts(os.path.join(DataSetConfig.DATA_ROOT, 'fonts'))
-        self.char_set = DataSetConfig.CHAR_SET
-        self.length = DataSetConfig.CAPTCHA_LENGTH
-
-    def generate_dataset(self):
-        train_path = os.path.join(DataSetConfig.DATA_ROOT, 'train')
-        valid_path = os.path.join(DataSetConfig.DATA_ROOT, 'valid')
-        # 清理目录
-        clear_dir(train_path)
-        clear_dir(valid_path)
-
-        total_samples = DataSetConfig.TOTAL_SAMPLES
-
-        train_samples = int(total_samples * 0.8)
-        self._generate_batch('train', 0, train_samples)
-        self._generate_batch('valid', train_samples, total_samples - train_samples)
-
-    def _generate_batch(self, mode, start, num_samples):
-        """生成指定模式的批次数据"""
-        save_path: str = str(os.path.join(DataSetConfig.DATA_ROOT, mode))
-
-        for i in tqdm(range(start, start + num_samples), desc=f'Generating {mode}', unit='img'):
+        """初始化验证码生成器"""
+        self.fonts = self._load_fonts()
+        self.char_set = config.CHAR_SET
+        self.length = config.CAPTCHA_LENGTH
+    
+    def _load_fonts(self) -> List[str]:
+        """加载字体文件"""
+        font_dir = os.path.join(config.DATA_ROOT, 'fonts')
+        if not os.path.exists(font_dir):
+            raise FileNotFoundError(f"字体目录不存在：{font_dir}")
+        
+        font_files = []
+        for filename in os.listdir(font_dir):
+            if filename.lower().endswith(('.ttf', '.otf')):
+                font_files.append(os.path.join(font_dir, filename))
+        
+        if not font_files:
+            raise FileNotFoundError(f"未找到任何字体文件，请在 {font_dir} 中添加TTF或OTF字体")
+        
+        return font_files
+    
+    def generate_dataset(self, total_samples: Optional[int] = None):
+        """生成数据集
+        
+        Args:
+            total_samples: 总样本数，默认使用配置中的值
+        """
+        if total_samples is None:
+            total_samples = config.TOTAL_SAMPLES
+            
+        # 创建目录
+        train_dir = os.path.join(config.DATA_ROOT, 'train')
+        valid_dir = os.path.join(config.DATA_ROOT, 'valid')
+        os.makedirs(train_dir, exist_ok=True)
+        os.makedirs(valid_dir, exist_ok=True)
+        
+        # 清空目录
+        for dir_path in [train_dir, valid_dir]:
+            for file in os.listdir(dir_path):
+                file_path = os.path.join(dir_path, file)
+                if os.path.isfile(file_path):
+                    os.unlink(file_path)
+        
+        # 计算训练集和验证集数量
+        train_count = int(total_samples * config.TRAIN_RATIO)
+        valid_count = total_samples - train_count
+        
+        print(f"🚀 开始生成数据集...")
+        print(f"📊 训练集: {train_count} 样本")
+        print(f"📊 验证集: {valid_count} 样本")
+        
+        # 生成数据集
+        self._generate_samples(train_dir, train_count, "训练集")
+        self._generate_samples(valid_dir, valid_count, "验证集")
+        
+        print("✅ 数据集生成完成!")
+    
+    def _generate_samples(self, output_dir: str, count: int, desc: str):
+        """生成指定数量的样本
+        
+        Args:
+            output_dir: 输出目录
+            count: 样本数量
+            desc: 进度条描述
+        """
+        for i in tqdm(range(count), desc=f"生成{desc}", unit="样本"):
+            # 生成随机文本
             text = ''.join(random.choices(self.char_set, k=self.length))
-            image = self._generate_base_image(text)  # 增强已集成到生成方法中
-
-            # 保存到对应目录
-            filename = f"{i:05d}_{text}.png"
-            image.save(os.path.join(save_path, filename))
-
-    def _generate_base_image(self, text):
-        """生成基础图像（多方法随机选择）"""
-        # generator = random.choice([self._lib_generate, self._manual_generate])
-        # return generator(text)
-        return self._manual_generate(text)
-
-    def _lib_generate(self, text):
-        height = np.random.randint(40, 80)
-        width = int(height * random.uniform(2.5, 3.5))
-        # 库生成方法保持纯净，不应用任何增强
-        image = ImageCaptcha(
-            width=width,
-            height=height,
-            fonts=self.fonts,
-            font_sizes=tuple([int(height * random.uniform(0.75, 0.9)) for _ in range(10)])
-        ).generate_image(text)
-        return image
-
-    def _manual_generate(self, text):
-        # ttext = text
-        # text = 'gjgj'
-        height = np.random.randint(30, 50)
+            
+            # 生成验证码图像
+            image = self._generate_image(text)
+            
+            # 保存图像
+            image_path = os.path.join(output_dir, f"{i:05d}_{text}.png")
+            image.save(image_path)
+    
+    def _generate_image(self, text: str) -> Image.Image:
+        """生成验证码图像
+        
+        Args:
+            text: 验证码文本
+            
+        Returns:
+            PIL.Image: 生成的验证码图像
+        """
+        # 设置图像参数
+        height = random.randint(30, 50)
         bg_color = tuple(random.randint(220, 255) for _ in range(3))
         text_box_height = height
         font_size = int(text_box_height * random.uniform(0.65, 0.85))
         font = ImageFont.truetype(random.choice(self.fonts), font_size)
-        # 生成字符图片
+        
+        # 生成字符图像
         char_imgs = []
-        for i, char in enumerate(text):
+        for char in text:
+            # 字符颜色
             font_color = tuple(random.randint(0, 200) for _ in range(3))
-
-            # 创建字符画布
-            char_box_width = math.ceil(font.getlength(char))
-            char_box_height = text_box_height
-            char_img = Image.new('RGBA', (char_box_width, char_box_height), (0, 0, 0, 0))
+            
+            # 字符图像
+            char_width = math.ceil(font.getlength(char))
+            char_img = Image.new('RGBA', (char_width, text_box_height), (0, 0, 0, 0))
             char_draw = ImageDraw.Draw(char_img)
-
-            char_x = 0
-            # y轴方向随机绘制字符
-            char_margin_top = (char_box_height - font_size) // 2
-            char_y = int(random.randint(0, char_margin_top)*0.2)
-
-            char_draw.text((char_x, char_y), char, font=font, fill=font_color)
-
-            # 旋转
+            
+            # 绘制字符（随机位置）
+            y_offset = random.randint(0, int(text_box_height*0.1) + 1)
+            char_draw.text((0, y_offset), char, font=font, fill=font_color)
+            
+            # 应用随机旋转
             angle = random.uniform(-15, 15)
             char_img = char_img.rotate(angle, expand=True, resample=Image.Resampling.BILINEAR)
-
+            
             char_imgs.append(char_img)
-
-        # 根据字符宽度确定图像宽度
-        width = sum([char_img.width for char_img in char_imgs])
-        height = max(char_img.height for char_img in char_imgs)
+        
+        # 计算图像尺寸
+        width = sum(img.width for img in char_imgs)
+        height = max(img.height for img in char_imgs)
+        
+        # 创建背景图像
         image = Image.new('RGB', (width, height), bg_color)
-        draw = ImageDraw.Draw(image)
-        # 向image中添加字符
+        
+        # 粘贴字符
         x = 0
-        for i, char_img in enumerate(char_imgs):
-            image.paste(char_img, (int(x), 0), char_img)
+        for char_img in char_imgs:
+            image.paste(char_img, (x, 0), char_img)
             x += char_img.width
-
-        # 添加不同颜色的噪点
+        
+        # 添加噪点
         pixels = image.load()
-        for _ in range(0,int(width * height * 0.01)):  # 增加噪点密度
+        for _ in range(0,int(width * height * 0.01)):
             x = random.randint(0, width - 1)
             y = random.randint(0, height - 1)
-            pixels[x, y] = tuple(random.randint(200, 240) for _ in range(3))
-
-        # 贝赛尔曲线
-        def draw_bezier_curve(points, num_points=5):
-            def binomial(n, k):
-                """二项式系数"""
-                result = 1
-                for i in range(1, k+1):
-                    result = result * (n-i+1) / i
-                return result
-
-            def bezier(t, points):
-                """根据t值计算贝塞尔曲线上的一点"""
-                n = len(points) - 1
-                x = y = 0
-                for i, point in enumerate(points):
-                    bernstein = binomial(n, i) * t**i * (1-t)**(n-i)
-                    x += point[0] * bernstein
-                    y += point[1] * bernstein
-                return x, y
-
-            # 计算曲线上的一系列点
-            curve_points = [bezier(t/num_points, points) for t in range(num_points)]
-
-            # 将点连接起来形成曲线
-            draw.line(curve_points, fill=tuple(random.randint(100, 200) for _ in range(3)),
-                      width= 1 if height < 60 else 2)
-
-        # # 添加干扰线
-        for _ in range(random.randint(0, 4)):
-            control_points = [(random.randint(0, width), random.randint(0, height)) for _ in range(random.randint(2,5))]
-            draw_bezier_curve(control_points)
-
-        # 颜色抖动
-        if random.random() < 0.5:
-            image = transforms.ColorJitter(0.2, 0.2, 0.2)(image)
-
-        # print(ttext, ': ', font.getname())
-        return image
+            pixels[x, y] = tuple(random.randint(0, 255) for _ in range(3))
+        
+        # 添加干扰线
+        draw = ImageDraw.Draw(image)
+        for _ in range(random.randint(0, 3)):
+            line_color = tuple(random.randint(0, 200) for _ in range(3))
+            points = []
+            for _ in range(random.randint(2, 3)):
+                points.append((random.randint(0, width), random.randint(0, height)))
+            draw.line(points, fill=line_color, width=1)
+        
+        return image 

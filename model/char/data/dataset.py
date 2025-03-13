@@ -1,124 +1,129 @@
 import os
-from random import sample
+import random
+from typing import Optional, Tuple
 
-import cv2
-import numpy as np
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import transforms
-from torchvision.transforms import InterpolationMode
 
-from model.char.config import BaseConfig, DataSetConfig
+from model.char_input.config import config
 
 
-def preprocess(img: Image.Image):
-    """统一的预处理流程"""
-    img = binarize(img)
+def preprocess(img: Image.Image) -> Image.Image:
+    """预处理图像，转为灰度图"""
+    if img.mode != 'L':
+        return img.convert('L')
     return img
 
-def resize(img: Image.Image):
-    """保持宽高比的智能缩放"""
+def resize(img: Image.Image) -> Image.Image:
+    """保持比例调整尺寸"""
+    target_width, target_height = config.IMAGE_SIZE
     original_width, original_height = img.size
-    target_width, target_height = BaseConfig.IMAGE_SIZE
-
-    # 计算缩放比例
-    width_ratio = target_width / original_width
-    height_ratio = target_height / original_height
-    scale_ratio = min(width_ratio, height_ratio)
-
-    # 等比缩放
-    new_width = int(original_width * scale_ratio)
-    new_height = int(original_height * scale_ratio)
-    img = img.resize((new_width, new_height), Image.Resampling.NEAREST)
-
-    # 创建目标画布（使用固定背景色）
-    canvas = Image.new('L', (target_width, target_height), 0)
-
-    # 粘贴或裁剪图像
-    if new_width <= target_width and new_height <= target_height:
-        # 计算粘贴位置
-        x = (target_width - new_width) // 2
-        y = (target_height - new_height) // 2
-        canvas.paste(img, (x, y))
+    
+    # 计算等比缩放宽度
+    new_width = int(original_width * (target_height / original_height))
+    img_resized = img.resize((new_width, target_height), Image.Resampling.BILINEAR)
+    
+    # 创建新图像
+    new_img = Image.new('L', (target_width, target_height), random.randint(220, 255))
+    
+    # 粘贴图像（居中）
+    if new_width <= target_width:
+        paste_pos = ((target_width - new_width) // 2, 0)
+        new_img.paste(img_resized, paste_pos)
     else:
-        # 裁剪中心区域
-        left = max(0, (new_width - target_width) // 2)
-        upper = max(0, (new_height - target_height) // 2)
-        right = left + target_width
-        lower = upper + target_height
-        canvas = img.crop((left, upper, right, lower))
+        crop_left = (new_width - target_width) // 2
+        crop_right = crop_left + target_width
+        new_img.paste(img_resized.crop((crop_left, 0, crop_right, target_height)), (0, 0))
+    
+    return new_img
 
-    return canvas
-
-def binarize(image):
-    tmp = np.array(image)
-    tmp = cv2.medianBlur(tmp, 3)
-
-    # 自适应阈值处理（高斯加权+反向二值化）
-    tmp = cv2.adaptiveThreshold(
-        src=tmp,
-        maxValue=255,
-        adaptiveMethod=cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        thresholdType=cv2.THRESH_BINARY_INV,
-        blockSize=9,
-        C=2
-    )
-    # tmp = cv2.medianBlur(tmp, 3)
-    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2,2))
-    tmp = cv2.morphologyEx(tmp, cv2.MORPH_CLOSE, kernel)
-
-    return Image.fromarray(tmp)
 
 class CaptchaDataset(Dataset):
-
+    """验证码数据集"""
+    
+    # 训练集增强变换
     train_transform = transforms.Compose([
         transforms.Lambda(preprocess),
-        transforms.RandomAffine(  # 随机仿射变换（旋转、平移、缩放、剪切）
-            degrees=5,            # 旋转角度范围：±5度（轻微旋转）
-            scale=(0.9, 1.1),     # 缩放比例范围（0.9到1.1倍）
-            shear=5,              # 剪切角度范围
-            interpolation=InterpolationMode.BILINEAR
+        transforms.RandomAffine(
+            degrees=config.AUGMENTATION['rotation_range'],
+            scale=(1-config.AUGMENTATION['zoom_range'], 1+config.AUGMENTATION['zoom_range']),
+            fill=random.randint(220, 255)
         ),
-        transforms.RandomPerspective(  # 随机透视变换（轻微变形）
-            distortion_scale=0.2,  # 变形程度（0.2表示较小变形）
-            p=0.3,                 # 应用概率（30%）
+        transforms.RandomPerspective(
+            distortion_scale=config.AUGMENTATION['distortion_scale'],
+            p=0.3,
+            fill=random.randint(220, 255)
+        ),
+        transforms.ColorJitter(
+            brightness=config.AUGMENTATION['brightness_range'],
+            contrast=config.AUGMENTATION['contrast_range']
         ),
         transforms.Lambda(resize),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.5], std=[0.5])
     ])
-
+    
+    # 验证集变换
     valid_transform = transforms.Compose([
         transforms.Lambda(preprocess),
         transforms.Lambda(resize),
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.5], std=[0.5])
     ])
-
-
-    def __init__(self, num_samples=None, mode='train'):
+    
+    def __init__(self, mode: str = 'train', num_samples: Optional[int] = None):
+        """
+        初始化数据集
+        
+        Args:
+            mode: 数据集模式，'train', 'valid', 或 'test'
+            num_samples: 样本数量限制，None表示使用全部样本
+        """
         self.mode = mode
-        self.image_dir = os.path.join(DataSetConfig.DATA_ROOT, mode)
-        self.image_files = [f for f in os.listdir(self.image_dir) if f.endswith('.png')]
+        self.image_dir = os.path.join(config.DATA_ROOT, mode)
+        
+        # 确保目录存在
+        if not os.path.exists(self.image_dir):
+            if mode == 'test':
+                # 测试目录不存在时自动创建
+                os.makedirs(self.image_dir, exist_ok=True)
+                print(f"测试目录已创建: {self.image_dir}")
+                print(f"请将测试图像放入该目录")
+                self.image_files = []
+                return
+            else:
+                raise FileNotFoundError(f"数据目录不存在：{self.image_dir}，请先生成数据集")
+        
+        # 获取图像文件列表 (.png, .jpg, .jpeg)
+        self.image_files = [f for f in os.listdir(self.image_dir) 
+                           if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
+        
+        # 限制样本数
+        if num_samples and num_samples < len(self.image_files):
+            import random
+            random.shuffle(self.image_files)
+            self.image_files = self.image_files[:num_samples]
 
-        # 样本数量控制
-        if num_samples and num_samples < DataSetConfig.TOTAL_SAMPLES:
-            split_ratio = DataSetConfig.TRAIN_RATIO
-            split_size = int(num_samples * split_ratio) if mode == 'train' else num_samples - int(num_samples * split_ratio)
-            self.image_files = sample(self.image_files, split_size)
-
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.image_files)
-
-    def __getitem__(self, idx):
+    
+    def __getitem__(self, idx: int) -> Tuple[torch.Tensor, torch.Tensor]:
         image_path = os.path.join(self.image_dir, self.image_files[idx])
-        image = Image.open(image_path).convert('L')
-
-        # 解析标签
-        label_str = self.image_files[idx].split('_')[1].split('.')[0]
-        label = [BaseConfig.CHAR_SET.index(c) for c in label_str]
-
-        # 应用预处理
+        image = Image.open(image_path)
+        
+        # 解析标签 - 对测试集特殊处理
+        # 从文件名解析标签（train/valid格式: index_label.ext, test: label.ext）
+        if self.mode != 'test':
+            label_str = self.image_files[idx].split('_')[1].split('.')[0]
+        else:
+            label_str = self.image_files[idx].split('.')[0]
+        # 确保标签长度正确
+        if len(label_str) != config.CAPTCHA_LENGTH:
+            raise ValueError(f"标签长度错误：{label_str}，应为 {config.CAPTCHA_LENGTH} 个字符")
+        label = [config.CHAR_SET.index(c) for c in label_str]
+        
+        # 应用变换
         transform = self.train_transform if self.mode == 'train' else self.valid_transform
         return transform(image), torch.tensor(label)
