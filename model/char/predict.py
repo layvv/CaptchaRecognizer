@@ -1,14 +1,15 @@
 import importlib
 import io
 import os
+import time
 from typing import List, Union
 
 import torch
 from PIL import Image
 from torchvision import transforms
 
-from model.char.config import BaseConfig
-from model.char.data.dataset import CaptchaDataset
+from model.char.config import BaseConfig, DataSetConfig
+from model.char.data.dataset import CaptchaDataset, resize, preprocess
 
 
 class CaptchaPredictor:
@@ -56,13 +57,8 @@ class CaptchaPredictor:
             raise RuntimeError(f"模型加载失败: {str(e)}")
 
     def _init_image_processing(self):
-        """初始化图像处理流程"""
-        self.transform = transforms.Compose([
-            # 先调整尺寸
-            transforms.Lambda(CaptchaDataset.resize),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5], std=[0.5])
-        ])
+        """复用验证阶段的预处理流程"""
+        self.transform = CaptchaDataset.valid_transform
         self.char_set = BaseConfig.CHAR_SET
         print(f"📊 字符集加载完成，共{len(self.char_set)}个字符")
 
@@ -103,47 +99,32 @@ class CaptchaPredictor:
         """解析多任务头输出"""
         return ''.join([self.char_set[head.argmax().item()] for head in outputs])
 
-class DynamicFillRandomAffine(transforms.RandomAffine):
-    """自定义随机仿射变换，动态获取填充色"""
-    def __call__(self, img):
-        # 从图像元数据获取背景色
-        self.fill = img.info.get('bg_color', 255)
-        return super().__call__(img)
-
-class DynamicFillRandomPerspective(transforms.RandomPerspective):
-    """自定义随机透视变换，动态获取填充色"""
-    def __call__(self, img):
-        self.fill = img.info.get('bg_color', 255)
-        return super().__call__(img)
 
 if __name__ == '__main__':
     # 示例用法（用户可修改这两个路径）
-    MODEL_PATH = "C:\Dev\code\Projects\CaptchaRecognizer\model\char\\final\\resnet_multi_head.pth"  # ← 修改为实际模型路径
-    TEST_IMAGE = "C:\\Users\yu\Downloads\captcha (1).jpg"  # ← 修改为测试图片路径
-    
+    # model_path = os.path.join(CheckpointConfig.FINAL_DIR, 'resnet_multi_head.pth')
+    model_path = 'C:\Dev\code\Projects\CaptchaRecognizer\model\char\checkpoint\\2025-03-13_00-36_resnet_multi_head_bs128_lr0.001\\resnet_multi_head_epoch76_acc98.64.pth'
+    test_image_dir = os.path.join(DataSetConfig.DATA_ROOT, 'test')
+    test_images = []
+    for image_file in os.listdir(test_image_dir):
+        if image_file.endswith('.png') or image_file.endswith('.jpg'):
+            test_images.append(os.path.join(test_image_dir, image_file))
+
     # 创建预测器实例
-    try:
-        predictor = CaptchaPredictor(MODEL_PATH)
-        result = predictor.predict(TEST_IMAGE)
-        print(f"\n🔮 识别结果: {result}")
-    except Exception as e:
-        print(f"❌ 错误: {str(e)}")
-    #
-    # img = Image.open(TEST_IMAGE).convert('L')
-    # trans = transforms.Compose([
-    #     transforms.Lambda(CaptchaDataset.resize),  # 必须放在第一个位置确保背景色信息存在
-    #     DynamicFillRandomAffine(
-    #         degrees=5,
-    #         translate=(0.05, 0.05),
-    #         scale=(0.8, 1.2),
-    #         interpolation=transforms.InterpolationMode.BILINEAR,
-    #     ),
-    #     DynamicFillRandomPerspective(
-    #         distortion_scale=0.1
-    #     ),
-    #     transforms.ColorJitter(brightness=0.2, contrast=0.2),
-    #     # transforms.ToTensor(),
-    #     # transforms.Normalize(mean=[0.5], std=[0.5])
-    # ])
-    # img = trans(img)
-    # img.show()
+    # try:
+    #     predictor = CaptchaPredictor(model_path)
+    #     for image_path in test_images:
+    #         result = predictor.predict(image_path)
+    #         print(f"✅ 识别结果: {result}")
+    # except Exception as e:
+    #     print(f"❌ 错误: {str(e)}")
+
+    valid_transform = transforms.Compose([
+        transforms.Lambda(preprocess),
+        transforms.Lambda(resize),
+    ])
+    for image_path in test_images:
+        img = valid_transform(Image.open(image_path).convert('L'))
+        img.show()
+        time.sleep(2)
+

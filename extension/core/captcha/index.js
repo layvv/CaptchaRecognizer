@@ -1,39 +1,23 @@
-export class CaptchaType{
-    static CHAR = 'char'
-    static SLIDE = 'slide'
-    static TEXT_CLICK = 'text_click'
-}
+import {getUserID} from "../../utils/user";
+
 
 export class CaptchaLocator{
-    constructor(type,selector,relatedEl){
-        this.type = type
-        this.domain = window.location.hostname
-        this.url = window.location.href
-        this.selector = selector
-        this.relatedEl = relatedEl
-        this.extraInfo = {
+    constructor(type,captcha,context){
+        Object.assign(this, {
+            type,
+            domain: window.location.hostname,
+            url: window.location.origin + window.location.pathname,
+            captcha,
+            context,
             createTime: Date.now(),
-            lastResolveTime: Date.now(),
+            lastResolveTime: null,
+            lastUploader: getUserID(),
+            lastUpdateTime: null,
             errorCount: 0,
-            successCount: 1,
-            tryCount: 1,
-        }
+            successCount: 0,
+            tryCount: 0,
+            origin: 'client',
+            locateMode: 'auto', // auto, manual
+        })
     }
-}
-
-// 定义每类验证码的特征接口
-export class Captcha{
-
-    // 验证码类型
-    static type = null
-
-    // 验证码特征信息
-    static feature = {
-        attribute: null,
-        relatedEl: null,
-    }
-
-    static match(el){
-    }
-
 }

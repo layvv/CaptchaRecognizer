@@ -41,11 +41,25 @@ class Visualizer:
 
     def log_confusion_matrix(self, all_labels, all_preds, epoch):
         """异步记录混淆矩阵"""
+        # 添加空数据检查
+        if not all_labels or not all_preds:
+            print("⚠️ 无有效数据生成混淆矩阵")
+            return
+
         def _async_plot():
             with self.plot_semaphores['confusion']:
-                cm = self._gen_confusion_matrix(all_labels, all_preds)
-                fig = self._create_cm_figure(cm, list(BaseConfig.CHAR_SET))
-                self.log_figure('ConfusionMatrix', fig, epoch)
+                try:
+                    cm = self._gen_confusion_matrix(all_labels, all_preds)
+                    # 添加矩阵有效性检查
+                    if cm.size == 0 or np.all(cm == 0):
+                        print("⏭️ 跳过空混淆矩阵记录")
+                        return
+                        
+                    fig = self._create_cm_figure(cm, list(BaseConfig.CHAR_SET))
+                    self.log_figure('ConfusionMatrix', fig, epoch)
+                except Exception as e:
+                    print(f"❌ 混淆矩阵生成失败: {str(e)}")
+
         threading.Thread(target=_async_plot, daemon=True).start()
 
     def log_char_distribution(self, char_stats, epoch):
@@ -206,7 +220,12 @@ class Visualizer:
         # 将标签和预测结果展平
         labels_flat = np.array(all_labels).flatten()
         preds_flat = np.array(all_preds).flatten()
+        
+        # 处理空数据情况
+        if len(labels_flat) == 0 or len(preds_flat) == 0:
+            return np.zeros((len(BaseConfig.CHAR_SET), len(BaseConfig.CHAR_SET)), dtype=int)
 
         # 计算混淆矩阵
-        return confusion_matrix(labels_flat, preds_flat)
+        return confusion_matrix(labels_flat, preds_flat, 
+                               labels=range(len(BaseConfig.CHAR_SET)))
 

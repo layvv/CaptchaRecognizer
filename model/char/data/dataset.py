@@ -1,29 +1,102 @@
 import os
-from collections import Counter
 from random import sample
 
+import cv2
+import numpy as np
 import torch
 from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import transforms
+from torchvision.transforms import InterpolationMode
 
 from model.char.config import BaseConfig, DataSetConfig
 
 
-class DynamicFillRandomAffine(transforms.RandomAffine):
-    """自定义随机仿射变换，动态获取填充色"""
-    def __call__(self, img):
-        # 从图像元数据获取背景色
-        self.fill = img.info.get('bg_color', 255)
-        return super().__call__(img)
+def preprocess(img: Image.Image):
+    """统一的预处理流程"""
+    img = binarize(img)
+    return img
 
-class DynamicFillRandomPerspective(transforms.RandomPerspective):
-    """自定义随机透视变换，动态获取填充色"""
-    def __call__(self, img):
-        self.fill = img.info.get('bg_color', 255)
-        return super().__call__(img)
+def resize(img: Image.Image):
+    """保持宽高比的智能缩放"""
+    original_width, original_height = img.size
+    target_width, target_height = BaseConfig.IMAGE_SIZE
+
+    # 计算缩放比例
+    width_ratio = target_width / original_width
+    height_ratio = target_height / original_height
+    scale_ratio = min(width_ratio, height_ratio)
+
+    # 等比缩放
+    new_width = int(original_width * scale_ratio)
+    new_height = int(original_height * scale_ratio)
+    img = img.resize((new_width, new_height), Image.Resampling.NEAREST)
+
+    # 创建目标画布（使用固定背景色）
+    canvas = Image.new('L', (target_width, target_height), 0)
+
+    # 粘贴或裁剪图像
+    if new_width <= target_width and new_height <= target_height:
+        # 计算粘贴位置
+        x = (target_width - new_width) // 2
+        y = (target_height - new_height) // 2
+        canvas.paste(img, (x, y))
+    else:
+        # 裁剪中心区域
+        left = max(0, (new_width - target_width) // 2)
+        upper = max(0, (new_height - target_height) // 2)
+        right = left + target_width
+        lower = upper + target_height
+        canvas = img.crop((left, upper, right, lower))
+
+    return canvas
+
+def binarize(image):
+    tmp = np.array(image)
+    tmp = cv2.medianBlur(tmp, 3)
+
+    # 自适应阈值处理（高斯加权+反向二值化）
+    tmp = cv2.adaptiveThreshold(
+        src=tmp,
+        maxValue=255,
+        adaptiveMethod=cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        thresholdType=cv2.THRESH_BINARY_INV,
+        blockSize=9,
+        C=2
+    )
+    # tmp = cv2.medianBlur(tmp, 3)
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (2,2))
+    tmp = cv2.morphologyEx(tmp, cv2.MORPH_CLOSE, kernel)
+
+    return Image.fromarray(tmp)
 
 class CaptchaDataset(Dataset):
+
+    train_transform = transforms.Compose([
+        transforms.Lambda(preprocess),
+        transforms.RandomAffine(  # 随机仿射变换（旋转、平移、缩放、剪切）
+            degrees=5,            # 旋转角度范围：±5度（轻微旋转）
+            scale=(0.9, 1.1),     # 缩放比例范围（0.9到1.1倍）
+            shear=5,              # 剪切角度范围
+            interpolation=InterpolationMode.BILINEAR
+        ),
+        transforms.RandomPerspective(  # 随机透视变换（轻微变形）
+            distortion_scale=0.2,  # 变形程度（0.2表示较小变形）
+            p=0.3,                 # 应用概率（30%）
+        ),
+        transforms.Lambda(resize),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.5], std=[0.5])
+    ])
+
+    valid_transform = transforms.Compose([
+        transforms.Lambda(preprocess),
+        transforms.Lambda(resize),
+        transforms.ToTensor(),
+        transforms.Normalize(mean=[0.5], std=[0.5])
+    ])
+
+
     def __init__(self, num_samples=None, mode='train'):
         self.mode = mode
         self.image_dir = os.path.join(DataSetConfig.DATA_ROOT, mode)
@@ -34,31 +107,6 @@ class CaptchaDataset(Dataset):
             split_ratio = DataSetConfig.TRAIN_RATIO
             split_size = int(num_samples * split_ratio) if mode == 'train' else num_samples - int(num_samples * split_ratio)
             self.image_files = sample(self.image_files, split_size)
-
-        # 数据增强配置
-        self.train_transform = transforms.Compose([
-            transforms.Lambda(CaptchaDataset.resize),  # 必须放在第一个位置确保背景色信息存在
-            transforms.RandomApply([
-                DynamicFillRandomPerspective(
-                    distortion_scale=0.1
-                ),
-                DynamicFillRandomAffine(
-                    degrees=5,
-                    translate=(0.05, 0.05),
-                    scale=(0.8, 1.2),
-                    interpolation=transforms.InterpolationMode.BILINEAR,
-                )
-            ],p=0.5),
-            transforms.ColorJitter(brightness=0.2, contrast=0.2),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5], std=[0.5])
-        ])
-
-        self.valid_transform = transforms.Compose([
-            transforms.Lambda(self.resize),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.5], std=[0.5])
-        ])
 
     def __len__(self):
         return len(self.image_files)
@@ -74,39 +122,3 @@ class CaptchaDataset(Dataset):
         # 应用预处理
         transform = self.train_transform if self.mode == 'train' else self.valid_transform
         return transform(image), torch.tensor(label)
-
-    @staticmethod
-    def resize(img: Image.Image):
-        """动态调整尺寸并存储背景色"""
-        original_width, original_height = img.size
-        target_width, target_height = BaseConfig.IMAGE_SIZE
-
-        # 计算等比缩放宽度
-        new_width = int(original_width * (target_height / original_height))
-        img_resized = img.resize((new_width, target_height), Image.Resampling.BILINEAR)
-
-        # 获取背景色（优化采样逻辑）
-        edge_samples = []
-        for x in [0, original_width-1]:  # 左右边缘
-            for y in range(0, original_height, max(1, original_height//5))[:5]:
-                edge_samples.append(img.getpixel((x, y)))
-        for y in [0, original_height-1]:  # 上下边缘
-            for x in range(0, original_width, max(1, original_width//5))[:5]:
-                edge_samples.append(img.getpixel((x, y)))
-        bg_color = Counter(edge_samples).most_common(1)[0][0]
-
-        # 创建新图像
-        new_img = Image.new('L', (target_width, target_height), bg_color)
-
-        # 填充图像
-        if new_width <= target_width:
-            paste_pos = ((target_width - new_width) // 2, 0)
-            new_img.paste(img_resized, paste_pos)
-        else:
-            crop_area = ((new_width - target_width)//2, 0,
-                         (new_width + target_width)//2, target_height)
-            new_img.paste(img_resized.crop(crop_area), (0, 0))
-
-        # 存储背景色到元数据
-        # new_img.info['bg_color'] = bg_color
-        return new_img

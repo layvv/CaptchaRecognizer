@@ -65,15 +65,18 @@ class CaptchaGenerator:
         return image
 
     def _manual_generate(self, text):
+        # ttext = text
+        # text = 'gjgj'
         height = np.random.randint(30, 50)
-        bg_color = (random.randint(220, 255), random.randint(220, 255), random.randint(220, 255))
+        bg_color = tuple(random.randint(220, 255) for _ in range(3))
         text_box_height = height
-        font_color = (random.randint(0, 100), random.randint(0, 100), random.randint(0, 100))
         font_size = int(text_box_height * random.uniform(0.65, 0.85))
         font = ImageFont.truetype(random.choice(self.fonts), font_size)
         # 生成字符图片
         char_imgs = []
         for i, char in enumerate(text):
+            font_color = tuple(random.randint(0, 200) for _ in range(3))
+
             # 创建字符画布
             char_box_width = math.ceil(font.getlength(char))
             char_box_height = text_box_height
@@ -83,7 +86,7 @@ class CaptchaGenerator:
             char_x = 0
             # y轴方向随机绘制字符
             char_margin_top = (char_box_height - font_size) // 2
-            char_y = char_margin_top + random.uniform(-char_margin_top, char_margin_top)*0.1
+            char_y = int(random.randint(0, char_margin_top)*0.2)
 
             char_draw.text((char_x, char_y), char, font=font, fill=font_color)
 
@@ -94,22 +97,22 @@ class CaptchaGenerator:
             char_imgs.append(char_img)
 
         # 根据字符宽度确定图像宽度
-        char_space = random.randint(len(text), 5 * len(text))
-        width = sum([char_img.width for char_img in char_imgs]) + char_space
+        width = sum([char_img.width for char_img in char_imgs])
+        height = max(char_img.height for char_img in char_imgs)
         image = Image.new('RGB', (width, height), bg_color)
         draw = ImageDraw.Draw(image)
         # 向image中添加字符
         x = 0
         for i, char_img in enumerate(char_imgs):
             image.paste(char_img, (int(x), 0), char_img)
-            x += char_img.width + char_space/len(text)
+            x += char_img.width
 
+        # 添加不同颜色的噪点
         pixels = image.load()
-        # 随机像素噪点
-        for _ in range(int(width * height * random.uniform(0, 0.02))):
+        for _ in range(0,int(width * height * 0.01)):  # 增加噪点密度
             x = random.randint(0, width - 1)
             y = random.randint(0, height - 1)
-            pixels[x, y] = (random.randint(0, 255), random.randint(0, 255), random.randint(0, 255))
+            pixels[x, y] = tuple(random.randint(200, 240) for _ in range(3))
 
         # 贝赛尔曲线
         def draw_bezier_curve(points, num_points=5):
@@ -134,11 +137,11 @@ class CaptchaGenerator:
             curve_points = [bezier(t/num_points, points) for t in range(num_points)]
 
             # 将点连接起来形成曲线
-            draw.line(curve_points, fill=tuple([ random.randint(80, 230) for _ in range(3)]),
+            draw.line(curve_points, fill=tuple(random.randint(100, 200) for _ in range(3)),
                       width= 1 if height < 60 else 2)
 
         # # 添加干扰线
-        for _ in range(random.randint(0, 5)):
+        for _ in range(random.randint(0, 4)):
             control_points = [(random.randint(0, width), random.randint(0, height)) for _ in range(random.randint(2,5))]
             draw_bezier_curve(control_points)
 
@@ -146,4 +149,5 @@ class CaptchaGenerator:
         if random.random() < 0.5:
             image = transforms.ColorJitter(0.2, 0.2, 0.2)(image)
 
+        # print(ttext, ': ', font.getname())
         return image

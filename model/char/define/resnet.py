@@ -53,41 +53,32 @@ class ResNetMultiHead(nn.Module):
     early_stop_patience = 10
     early_stop_delta = 0.002
     weight_decay = 0.05
-    conv_dropout = 0.2
-    shared_dropout = 0.3
-    head_dropout = 0.2
+    conv_dropout = 0.4
+    shared_dropout = 0.5
+    head_dropout = 0.4
 
 
     def __init__(self):
         super().__init__()
 
-        # 重构特征提取层
+        # 简化特征提取层
         self.stem = nn.Sequential(
-            nn.Conv2d(1, 32, 3, stride=1, padding=1, bias=False),
-            nn.BatchNorm2d(32),
-            nn.ReLU(inplace=True),
-            nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
+            nn.Conv2d(1, 16, 3, stride=1, padding=1),  # 减少初始通道数
+            nn.BatchNorm2d(16),
+            nn.ReLU(),
+            nn.MaxPool2d(2, 2)
         )
 
-        # 构建残差块序列
-        self.layer1 = self._make_layer(block=BasicBlock, in_channels=32, out_channels=64, blocks=2, stride=1)
-        self.layer2 = self._make_layer(block=BasicBlock, in_channels=64, out_channels=128, blocks=2, stride=2)
-        self.layer3 = self._make_layer(block=BasicBlock, in_channels=128, out_channels=256, blocks=2, stride=2)
-
-        # 添加SE注意力模块
-        self.se = nn.Sequential(
-            nn.AdaptiveAvgPool2d(1),
-            nn.Conv2d(256, 64, kernel_size=1),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(64, 256, kernel_size=1),
-            nn.Sigmoid()
-        )
+        # 减少网络深度
+        self.layer1 = self._make_layer(BasicBlock, 16, 32, 2)
+        self.layer2 = self._make_layer(BasicBlock, 32, 64, 2)
+        self.layer3 = self._make_layer(BasicBlock, 64, 128, 2)  # 最终通道数减少
 
         # 修改分类头前的池化层
         self.global_pool = nn.AdaptiveAvgPool2d(1)  # 自适应池化
 
         self.shared_fc = nn.Sequential(
-            nn.Linear(256, 512),  # 直接使用SE模块的输出通道数
+            nn.Linear(128, 512),  # 直接使用SE模块的输出通道数
             nn.BatchNorm1d(512),
             nn.ReLU(),
             nn.Dropout(self.shared_dropout)
@@ -227,7 +218,6 @@ class ResNetMultiHead(nn.Module):
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
-        x = self.se(x) * x  # SE注意力
         x = self.global_pool(x)
         return x.view(x.size(0), -1)
 
