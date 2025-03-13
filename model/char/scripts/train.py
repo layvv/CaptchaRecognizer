@@ -41,35 +41,15 @@ def train_model(model_type=None, epochs=None, batch_size=None, learning_rate=Non
     print(f"   - 学习率: {config.LEARNING_RATE}")
     print(f"   - 验证码长度: {config.CAPTCHA_LENGTH}")
     print(f"   - 字符集大小: {config.NUM_CLASSES}")
-
-    # 检查Tensorboard目录
-    tensorboard_dir = os.path.join(config.EXPERIMENT_ROOT, 
-                                 f"{time.strftime('%Y%m%d_%H%M%S')}_{model.model_type}")
-    print(f"TensorBoard日志目录: {tensorboard_dir}")
-    print(f"启动TensorBoard: tensorboard --logdir={tensorboard_dir}")
     
     # 开始训练
     start_time = time.time()
     model.train_model()
     training_time = time.time() - start_time
     
-    # 训练结束后进行全面评估
-    print("\n⚙️ 进行最终模型评估...")
-    from model.char.evaluate import evaluate_model
-    final_metrics = evaluate_model(
-        model=model,
-        save_dir=os.path.join(config.EXPERIMENT_ROOT, 'evaluations')
-    )
-    
     # 打印训练结果
     print(f"\n✅ 训练完成！")
     print(f"⏱️ 训练时间: {training_time:.2f}秒")
-    
-    # 打印最佳指标
-    best_metrics = model.metrics_tracker.get_best_metrics()
-    print(f"📈 最佳验证准确率: {best_metrics.get('best_val_acc', 0):.4f} (Epoch {best_metrics.get('best_epoch', 0)})")
-    print(f"📊 最佳字符准确率: {best_metrics.get('best_char_acc', 0):.4f}")
-    print(f"🎯 最佳验证码准确率: {best_metrics.get('best_captcha_acc', 0):.4f}")
     
     return model
 

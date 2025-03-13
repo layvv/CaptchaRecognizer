@@ -61,7 +61,7 @@ def save_final_model(model):
     
     # 如果发生早停，使用最佳checkpoint
     if model.early_stop:
-        print(f"检测到早停，导出最佳模型 (准确率: {model.best_val_acc:.4f})")
+        print(f"检测到早停，导出最佳模型 (准确率: {model.best_val_acc*100:.2f}%)")
         # 找到checkpoint目录中最佳模型
         experiment_dir = model.experiment_dir
         best_model = None

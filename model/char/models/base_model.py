@@ -131,7 +131,7 @@ class BaseModel(nn.Module, ABC):
 
         # 创建实验目录
         experiment_name = config.EXPERIMENT_FORMAT.format(
-            timestamp=time.strftime("%Y%m%d_%H%M%S"),
+            timestamp=time.strftime("%Y_%m%d_%H_%M_%S"),
             model_type=self.model_type,
         )
         self.experiment_dir = os.path.join(config.EXPERIMENT_ROOT, experiment_name)
@@ -195,19 +195,6 @@ class BaseModel(nn.Module, ABC):
             self.val_accs.append(val_acc)
             self.learning_rates.append(current_lr)
             
-            # 记录到TensorBoard
-            self.visualizer.log_scalars('Loss', {
-                'train': train_loss, 
-                'valid': val_loss
-            }, epoch)
-            
-            self.visualizer.log_scalars('Accuracy', {
-                'train': train_acc,
-                'valid': val_acc
-            }, epoch)
-            
-            self.visualizer.log_scalars('Learning Rate', {'lr': current_lr}, epoch)
-            
             # 保存最佳模型
             if val_acc > self.best_val_acc:
                 self.best_val_acc = val_acc
@@ -219,11 +206,13 @@ class BaseModel(nn.Module, ABC):
             
             # 打印进度
             print(f"Epoch {epoch}/{config.EPOCHS} | "
-                  f"Train Loss: {train_loss:.4f} | "
-                  f"Train Acc: {train_acc:.4f} | "
-                  f"Val Loss: {val_loss:.4f} | "
-                  f"Val Acc: {val_acc:.4f} | "
-                  f"LR: {current_lr:.6f}")
+                  f"Train Loss/Acc: {train_loss:.4f}/{train_acc*100:.2f}% | "
+                  f"Val Loss/Acc: {val_loss:.4f}/{val_acc*100:.2f}% | "
+                  f"LR: {current_lr:.6f} | "
+                  f"No Improve: {self.no_improve_count} | "
+                  f"Best Acc: {self.best_val_acc*100:.2f}%"
+            )
+
             
             # 早停
             if config.EARLY_STOPPING and self.no_improve_count >= config.PATIENCE:
@@ -233,7 +222,6 @@ class BaseModel(nn.Module, ABC):
         
         # 保存最终模型
         save_final_model(self)
-        print(f"训练完成！最佳验证准确率: {self.best_val_acc:.4f}")
     
     def _train_epoch(self) -> Tuple[float, float]:
         """训练一个epoch
@@ -272,25 +260,16 @@ class BaseModel(nn.Module, ABC):
             
             # 计算准确率
             acc, _ = self._calculate_accuracy(outputs, labels)
-            
-            # 更新统计
-            total_loss += loss.item()
-            total_acc += acc
-            
+
             # 更新进度条
             progress_bar.set_postfix({
                 'loss': f'{loss.item():.4f}',
                 'acc': f'{acc*100:.2f}%'
             })
-        
-        # 更新指标
-        current_lr = self.optimizer.param_groups[0]['lr']
-        self.metrics_tracker.update_train_metrics(
-            total_loss / len(self.train_loader),
-            total_acc / len(self.train_loader),
-            current_lr
-        )
-        
+            # 更新统计
+            total_loss += loss.item()
+            total_acc += acc
+
         return total_loss / len(self.train_loader), total_acc / len(self.train_loader)
     
     def _validate(self):
@@ -300,9 +279,15 @@ class BaseModel(nn.Module, ABC):
         # 在不计算梯度的情况下进行前向传播
         total_loss = 0
         total_acc = 0
+
+        progress_bar = tqdm(
+            self.valid_loader,
+            desc=f"[Valid] Epoch {self.current_epoch}/{config.EPOCHS}",
+            leave=False
+        )
         
         with torch.no_grad():
-            for images, labels in self.valid_loader:
+            for images, labels in progress_bar:
                 images = images.to(self.device)
                 labels = labels.to(self.device)
                 
@@ -314,7 +299,12 @@ class BaseModel(nn.Module, ABC):
                 
                 # 计算准确率
                 acc, predictions = self._calculate_accuracy(outputs, labels)
-                
+
+                # 更新进度条
+                progress_bar.set_postfix({
+                    'loss': f'{loss.item():.4f}',
+                    'acc': f'{acc*100:.2f}%'
+                })
                 # 更新总和
                 total_loss += loss.item()
                 total_acc += acc
@@ -322,59 +312,6 @@ class BaseModel(nn.Module, ABC):
         # 计算平均值
         val_loss = total_loss / len(self.valid_loader)
         val_acc = total_acc / len(self.valid_loader)
-        
-        # 收集所有批次的数据
-        all_labels = []
-        all_outputs = [[] for _ in range(config.CAPTCHA_LENGTH)]
-        all_images = []
-        
-        with torch.no_grad():
-            for images, labels in self.valid_loader:
-                images = images.to(self.device)
-                labels = labels.to(self.device)
-                
-                # 前向传播
-                outputs = self(images)
-                
-                # 收集结果
-                all_labels.append(labels.cpu())
-                for i, output in enumerate(outputs):
-                    all_outputs[i].append(output.cpu())
-                
-                # 保存少量图像用于可视化
-                if len(all_images) < 1:  # 只保存第一个批次
-                    all_images.append(images.cpu())
-        
-        # 更新指标
-        predictions = self.metrics_tracker.update_val_metrics(
-            val_loss, val_acc, all_outputs, all_labels
-        )
-        
-        # 记录指标
-        if self.logger:
-            # 记录当前指标
-            self.logger.log_metrics(self.metrics_tracker.get_current_metrics(), self.current_epoch)
-            
-            # 计算并记录混淆矩阵
-            from sklearn.metrics import confusion_matrix
-            cm = confusion_matrix(
-                all_labels[0].flatten().cpu().numpy(), 
-                predictions.flatten().cpu().numpy(),
-                labels=range(config.NUM_CLASSES)
-            )
-            self.logger.log_confusion_matrix(cm, self.current_epoch)
-            
-            # 记录字符准确率
-            if self.metrics_tracker.char_level_metrics:
-                self.logger.log_character_accuracy(
-                    self.metrics_tracker.char_level_metrics[-1], 
-                    self.current_epoch
-                )
-            
-            # 记录样本图像
-            self.logger.log_sample_images(
-                all_images[0], predictions[:8], all_labels[0][:8], self.current_epoch
-            )
         
         return val_loss, val_acc
     
