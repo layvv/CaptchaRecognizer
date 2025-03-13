@@ -1,17 +1,15 @@
-import os
-import time
 import argparse
-from typing import List, Union, Tuple
 import io
+import os
+from typing import List, Union, Tuple
 
 import torch
-import numpy as np
 from PIL import Image
 from torchvision import transforms
 
-from model.char_input.config import config
-from model.char_input.data.dataset import preprocess, resize
-from model.char_input.utils.model_util import load_model
+from model.char.config import config
+from model.char.data.dataset import preprocess, resize
+from model.char.utils.model_util import load_model
 
 
 class CaptchaPredictor:

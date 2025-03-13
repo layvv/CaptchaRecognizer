@@ -8,9 +8,9 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 from tqdm import tqdm
 
-from model.char_input.config import config
-from model.char_input.data.dataset import CaptchaDataset
-from model.char_input.utils.model_util import save_checkpoint, save_final_model
+from model.char.config import config
+from model.char.data.dataset import CaptchaDataset
+from model.char.utils.model_util import save_checkpoint, save_final_model
 
 
 class BaseModel(nn.Module, ABC):

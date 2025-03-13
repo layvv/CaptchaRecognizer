@@ -4,8 +4,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from model.char_input.config import config
-from model.char_input.models.base_model import BaseModel
+from model.char.config import config
+from model.char.models.base_model import BaseModel
 
 
 class BasicCNN(BaseModel):

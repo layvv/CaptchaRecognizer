@@ -5,9 +5,9 @@ import time
 from PIL import Image
 from torchvision import transforms
 
-from model.char_input.config import config
-from model.char_input.data.dataset import resize, preprocess
-from model.char_input.models import get_model
+from model.char.config import config
+from model.char.data.dataset import resize, preprocess
+from model.char.models import get_model
 
 
 def train_model(model_type=None, epochs=None, batch_size=None, learning_rate=None):
@@ -55,7 +55,7 @@ def train_model(model_type=None, epochs=None, batch_size=None, learning_rate=Non
     
     # 训练结束后进行全面评估
     print("\n⚙️ 进行最终模型评估...")
-    from model.char_input.evaluate import evaluate_model
+    from model.char.evaluate import evaluate_model
     final_metrics = evaluate_model(
         model=model,
         save_dir=os.path.join(config.EXPERIMENT_ROOT, 'evaluations')

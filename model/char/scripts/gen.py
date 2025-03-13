@@ -1,7 +1,7 @@
 import os
 import argparse
-from model.char_input.data.generator import CaptchaGenerator
-from model.char_input.config import config
+from model.char.data.generator import CaptchaGenerator
+from model.char.config import config
 
 
 def generate_dataset(total_samples=None, train_ratio=None):

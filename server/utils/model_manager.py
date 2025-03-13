@@ -1,10 +1,8 @@
 import asyncio
-from typing import Dict, Any, Optional, List
-import numpy as np
+from typing import Dict, Any
 from PIL import Image
 import io
 import os
-import torch
 from datetime import datetime
 
 from server.utils.logger import get_logger
@@ -63,7 +61,7 @@ class ModelManager:
         """加载字符验证码模型"""
         try:
             # 导入模型相关模块
-            from model.char.predict import CaptchaPredictor
+            from model.char.scripts.predict import CaptchaPredictor
             
             # 检查模型文件是否存在
             model_path = config["path"]

@@ -19,7 +19,7 @@ def get_model(model_type=None) -> BaseModel:
     Returns:
         Model: 模型实例
     """
-    from model.char_input.config import config
+    from model.char.config import config
     
     if model_type is None:
         model_type = config.MODEL_TYPE

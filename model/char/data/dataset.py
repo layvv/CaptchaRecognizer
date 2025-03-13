@@ -7,7 +7,7 @@ from PIL import Image
 from torch.utils.data import Dataset
 from torchvision import transforms
 
-from model.char_input.config import config
+from model.char.config import config
 
 
 def preprocess(img: Image.Image) -> Image.Image:

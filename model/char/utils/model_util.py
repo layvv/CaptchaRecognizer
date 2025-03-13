@@ -7,7 +7,7 @@ import platform
 import torch
 import psutil
 
-from model.char_input.config import config
+from model.char.config import config
 
 
 def save_checkpoint(model):
@@ -188,7 +188,7 @@ def load_model(model_path=None):
     state = torch.load(model_path, map_location='cpu')
     
     # 获取模型类
-    from model.char_input.models import get_model
+    from model.char.models import get_model
     model = get_model(state.get('model_type', config.MODEL_TYPE))
     
     # 加载权重

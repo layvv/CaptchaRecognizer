@@ -1,13 +1,12 @@
+import math
 import os
 import random
-import math
-from typing import List, Tuple, Optional
+from typing import List, Optional
 
-import numpy as np
 from PIL import Image, ImageDraw, ImageFont
 from tqdm import tqdm
 
-from model.char_input.config import config
+from model.char.config import config
 
 
 class CaptchaGenerator:
