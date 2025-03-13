@@ -6,11 +6,13 @@ from typing import List, Tuple, Optional
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader
+from torch.optim.lr_scheduler import ReduceLROnPlateau, CosineAnnealingLR, StepLR
 from tqdm import tqdm
 
 from model.char.config import config
 from model.char.data.dataset import CaptchaDataset
 from model.char.utils.model_util import save_checkpoint, save_final_model
+from model.char.utils.metrics import MetricsTracker
 
 
 class BaseModel(nn.Module, ABC):
@@ -21,33 +23,17 @@ class BaseModel(nn.Module, ABC):
     
     def __init__(self):
         """初始化模型"""
-        super(BaseModel, self).__init__()
+        super().__init__()
+        self.current_epoch = None
+        self.early_stop = None
+        self.no_improve_count = None
+        self.best_val_loss = None
+        self.best_val_acc = None
+        # 使用可用的最佳设备
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        
-        # 训练状态
-        self.train_loader = None
-        self.valid_loader = None
-        self.experiment_dir = None
-        self.current_epoch = 0
-        self.best_val_acc = 0.0
-        self.best_val_loss = float('inf')
-        self.no_improve_count = 0
-        self.early_stop = False
-        
-        # 指标记录
-        self.train_losses = []
-        self.train_accs = []
-        self.val_losses = []
-        self.val_accs = []
-        self.learning_rates = []
-        
-        # 动态创建
-        self.visualizer = None
-        self.optimizer = None
-        self.scheduler = None
-        self.criterion = None
-
-
+        # 将模型移至设备
+        self.to(self.device)
+    
     def _init_weights(self):
         """初始化权重"""
         for m in self.modules():
@@ -77,7 +63,6 @@ class BaseModel(nn.Module, ABC):
         pass
     
     def _init_training_state(self) -> None:
-        self.to(self.device)
         """配置优化器和调度器"""
         # 优化器
         if config.OPTIMIZER == 'adam':
@@ -134,8 +119,12 @@ class BaseModel(nn.Module, ABC):
             timestamp=time.strftime("%Y_%m%d_%H_%M_%S"),
             model_type=self.model_type,
         )
-        self.experiment_dir = os.path.join(config.EXPERIMENT_ROOT, experiment_name)
+        self.experiment_dir = str(os.path.join(config.EXPERIMENT_ROOT, experiment_name))
         os.makedirs(self.experiment_dir, exist_ok=True)
+
+        # 初始化指标跟踪器
+        self.metrics_tracker = MetricsTracker(self.experiment_dir, self.model_type)
+
 
     
     def train_model(self, num_samples: Optional[int] = None) -> None:
@@ -146,30 +135,8 @@ class BaseModel(nn.Module, ABC):
         """
         # 初始化
         self._init_training_state()
-        
-        # 加载数据集
-        train_dataset = CaptchaDataset(mode='train', num_samples=num_samples)
-        valid_dataset = CaptchaDataset(mode='valid', num_samples=num_samples)
-        
-        self.train_loader = DataLoader(
-            train_dataset,
-            batch_size=config.BATCH_SIZE,
-            shuffle=True,
-            num_workers=config.NUM_WORKERS,
-            pin_memory=config.PIN_MEMORY
-        )
 
-        self.valid_loader = DataLoader(
-            valid_dataset,
-            batch_size=config.BATCH_SIZE,
-            shuffle=False,
-            num_workers=config.NUM_WORKERS,
-            pin_memory=config.PIN_MEMORY
-        )
-        
-        # 打印训练信息
-        self._print_training_info(train_dataset, valid_dataset)
-
+        self._load_data(num_samples)
         
         # 训练循环
         for epoch in range(1, config.EPOCHS + 1):
@@ -194,6 +161,16 @@ class BaseModel(nn.Module, ABC):
             self.val_losses.append(val_loss)
             self.val_accs.append(val_acc)
             self.learning_rates.append(current_lr)
+            
+            # 记录到TensorBoard
+            self.metrics_tracker.log_to_tensorboard(
+                epoch=epoch,
+                train_loss=train_loss,
+                train_acc=train_acc,
+                val_loss=val_loss,
+                val_acc=val_acc,
+                lr=current_lr
+            )
             
             # 保存最佳模型
             if val_acc > self.best_val_acc:
@@ -220,24 +197,32 @@ class BaseModel(nn.Module, ABC):
                 self.early_stop = True
                 break
         
+        # 保存训练曲线
+        self.metrics_tracker.save_training_curves()
+        
+        # 关闭指标跟踪器
+        self.metrics_tracker.close()
+        
         # 保存最终模型
         save_final_model(self)
+
     
     def _train_epoch(self) -> Tuple[float, float]:
         """训练一个epoch
         
         Args:
             train_loader: 训练数据加载器
-            
+        
         Returns:
-            (loss, accuracy): 平均损失和准确率
+            训练损失和准确率的元组
         """
-        self.train()
+        self.train()  # 设置为训练模式
         total_loss = 0
         total_acc = 0
         
+        # 使用tqdm创建进度条
         progress_bar = tqdm(
-            self.train_loader,
+            self.train_loader, 
             desc=f"[Train] Epoch {self.current_epoch}/{config.EPOCHS}",
             leave=False
         )
@@ -246,16 +231,17 @@ class BaseModel(nn.Module, ABC):
             images = images.to(self.device)
             labels = labels.to(self.device)
             
+            # 清零梯度
+            self.optimizer.zero_grad()
+            
             # 前向传播
             outputs = self(images)
             
-            # 计算损失
+            # 计算损失 (每个字符位置各自的损失之和)
             loss = sum(self.criterion(output, labels[:, i]) for i, output in enumerate(outputs))
             
-            # 反向传播
-            self.optimizer.zero_grad()
+            # 反向传播和优化
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(self.parameters(), max_norm=1.0)
             self.optimizer.step()
             
             # 计算准确率
@@ -286,6 +272,11 @@ class BaseModel(nn.Module, ABC):
             leave=False
         )
         
+        # 收集所有批次的数据用于指标计算
+        all_outputs = [[] for _ in range(config.CAPTCHA_LENGTH)]
+        all_labels = []
+        all_images = []
+        
         with torch.no_grad():
             for images, labels in progress_bar:
                 images = images.to(self.device)
@@ -308,12 +299,77 @@ class BaseModel(nn.Module, ABC):
                 # 更新总和
                 total_loss += loss.item()
                 total_acc += acc
+                
+                # 收集结果用于指标计算
+                for i, output in enumerate(outputs):
+                    all_outputs[i].append(output.cpu())
+                all_labels.append(labels.cpu())
+                
+                # 保存少量图像用于可视化
+                if len(all_images) < 2:  # 仅保存前两个批次的图像
+                    all_images.append(images.cpu())
         
         # 计算平均值
         val_loss = total_loss / len(self.valid_loader)
         val_acc = total_acc / len(self.valid_loader)
         
+        # 使用指标跟踪器更新并计算详细指标
+        if self.metrics_tracker:
+            # 合并所有批次的输出和标签
+            merged_outputs = [torch.cat(outputs, dim=0) for outputs in all_outputs]
+            merged_labels = torch.cat(all_labels, dim=0)
+            
+            # 更新验证指标
+            predictions = self.metrics_tracker.update_val_metrics(
+                val_loss, val_acc, merged_outputs, [merged_labels], self.current_epoch
+            )
+            
+            # 记录混淆矩阵
+            if len(merged_labels) > 0:
+                from sklearn.metrics import confusion_matrix
+
+                # 计算字符级别的混淆矩阵
+                cm = confusion_matrix(
+                    merged_labels.flatten().numpy(), 
+                    predictions.flatten().numpy(),
+                    labels=range(config.NUM_CLASSES)
+                )
+                self.metrics_tracker.log_confusion_matrix(cm, self.current_epoch)
+            
+            # 记录样例图像
+            if all_images:
+                sample_images = torch.cat(all_images, dim=0)[:8]  # 最多取8张图
+                sample_labels = merged_labels[:8]
+                sample_preds = predictions[:8]
+                self.metrics_tracker.log_sample_images(
+                    sample_images, sample_preds, sample_labels, self.current_epoch
+                )
+        
         return val_loss, val_acc
+
+    def _load_data(self, num_samples: Optional[int] = None):
+        # 加载数据集
+        train_dataset = CaptchaDataset(mode='train', num_samples=num_samples)
+        valid_dataset = CaptchaDataset(mode='valid', num_samples=num_samples)
+
+        self.train_loader = DataLoader(
+            train_dataset,
+            batch_size=config.BATCH_SIZE,
+            shuffle=True,
+            num_workers=config.NUM_WORKERS,
+            pin_memory=config.PIN_MEMORY
+        )
+
+        self.valid_loader = DataLoader(
+            valid_dataset,
+            batch_size=config.BATCH_SIZE,
+            shuffle=False,
+            num_workers=config.NUM_WORKERS,
+            pin_memory=config.PIN_MEMORY
+        )
+
+        # 打印训练信息
+        self._print_training_info(train_dataset, valid_dataset)
     
     @staticmethod
     def _calculate_accuracy(outputs: List[torch.Tensor], labels: torch.Tensor) -> Tuple[float, torch.Tensor]:

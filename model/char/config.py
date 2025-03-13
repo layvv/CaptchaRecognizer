@@ -22,7 +22,7 @@ class Config:
     
     # 数据生成配置
     TRAIN_RATIO: float = 0.8
-    TOTAL_SAMPLES: int = 60
+    TOTAL_SAMPLES: int = 60000
     
     # 数据增强参数
     AUGMENTATION: Dict[str, Any] = field(default_factory=lambda: {
@@ -78,7 +78,7 @@ class Config:
     })
     
     # 实验配置
-    EXPERIMENT_FORMAT: str = "{timestamp}_{model_type}"
+    EXPERIMENT_FORMAT: str = "{model_type}_{timestamp}"
 
 # 创建默认配置实例
 config = Config() 

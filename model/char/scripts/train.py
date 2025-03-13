@@ -1,6 +1,7 @@
 import argparse
 import os
 import time
+from typing import List
 
 from PIL import Image
 from torchvision import transforms
@@ -8,67 +9,47 @@ from torchvision import transforms
 from model.char.config import config
 from model.char.data.dataset import resize, preprocess
 from model.char.models import get_model
+from model.char.utils.model_util import load_model
 
 
-def train_model(model_type=None, epochs=None, batch_size=None, learning_rate=None):
+def train_model(num_samples=None):
     """训练验证码识别模型
     
     Args:
-        model_type: 模型类型，None使用配置中的默认值
-        epochs: 训练轮次，None使用配置中的默认值
-        batch_size: 批量大小，None使用配置中的默认值
-        learning_rate: 学习率，None使用配置中的默认值
-    """
-    # 更新配置
-    if model_type:
-        config.MODEL_TYPE = model_type
-    if epochs:
-        config.EPOCHS = epochs
-    if batch_size:
-        config.BATCH_SIZE = batch_size
-    if learning_rate:
-        config.LEARNING_RATE = learning_rate
+        num_samples: 限制样本数量（用于调试）
     
-    # 获取模型
+    Returns:
+        训练好的模型
+    """
+    
+    # 创建模型
     model = get_model(config.MODEL_TYPE)
     
-    # 打印训练信息
-    print(f"\n🚀 开始训练 {model.model_type} 模型")
-    print(f"📊 训练配置:")
-    print(f"   - 模型类型: {model.model_type}")
-    print(f"   - 训练轮次: {config.EPOCHS}")
-    print(f"   - 批量大小: {config.BATCH_SIZE}")
+    # 打印配置信息
+    print(f"\n🚀 开始训练 {model.model_type.upper()} 模型")
+    print(f"📊 训练参数:")
+    print(f"   - 设备: {model.device}")
+    print(f"   - 训练轮数: {config.EPOCHS}")
+    print(f"   - 批大小: {config.BATCH_SIZE}")
+    print(f"   - 优化器: {config.OPTIMIZER}")
     print(f"   - 学习率: {config.LEARNING_RATE}")
     print(f"   - 验证码长度: {config.CAPTCHA_LENGTH}")
     print(f"   - 字符集大小: {config.NUM_CLASSES}")
     
     # 开始训练
     start_time = time.time()
-    model.train_model()
+    model.train_model(num_samples=num_samples)
     training_time = time.time() - start_time
     
     # 打印训练结果
     print(f"\n✅ 训练完成！")
     print(f"⏱️ 训练时间: {training_time:.2f}秒")
-    
-    return model
+    print(f"📈 最佳验证准确率: {model.best_val_acc*100:.2f}%")
 
 
 def main():
-    """命令行入口"""
-    parser = argparse.ArgumentParser(description='验证码识别模型训练')
-    parser.add_argument('--model', type=str, default=None, choices=['cnn', 'resnet', 'crnn'],
-                        help='模型类型: cnn, resnet, crnn')
-    parser.add_argument('--epochs', type=int, default=None,
-                        help='训练轮次')
-    parser.add_argument('--batch-size', type=int, default=None,
-                        help='批量大小')
-    parser.add_argument('--lr', type=float, default=None,
-                        help='学习率')
-    
-    args = parser.parse_args()
-    
-    train_model(args.model, args.epochs, args.batch_size, args.lr)
+    # 执行对应命令
+    train_model()
 
 def check_image():
     test_images = []
@@ -87,5 +68,5 @@ def check_image():
         time.sleep(2)
 
 if __name__ == '__main__':
-    # main()
-    check_image()
+    main()
+    # check_image()

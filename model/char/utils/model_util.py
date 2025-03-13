@@ -185,11 +185,11 @@ def load_model(model_path=None):
         raise FileNotFoundError(f"模型文件不存在: {model_path}")
         
     # 加载状态
-    state = torch.load(model_path, map_location='cpu')
+    state = torch.load(model_path)
     
     # 获取模型类
     from model.char.models import get_model
-    model = get_model(state.get('model_type', config.MODEL_TYPE))
+    model = get_model(state.get('model_type'))
     
     # 加载权重
     model.load_state_dict(state['model_state_dict'])

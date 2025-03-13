@@ -14,7 +14,7 @@ class CRNN(BaseModel):
     model_type = "crnn"
     
     def __init__(self):
-        super(CRNN, self).__init__()
+        super().__init__()
         
         # 获取配置参数
         rnn_hidden = config.MODEL_PARAMS['crnn']['rnn_hidden']

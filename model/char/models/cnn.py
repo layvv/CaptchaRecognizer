@@ -14,7 +14,7 @@ class BasicCNN(BaseModel):
     model_type = "cnn"
     
     def __init__(self):
-        super(BasicCNN, self).__init__()
+        super().__init__()
         
         # 获取模型参数
         conv_channels = config.MODEL_PARAMS['cnn']['conv_layers']

@@ -74,7 +74,7 @@ class ResNet(BaseModel):
     model_type = "resnet"
     
     def __init__(self):
-        super(ResNet, self).__init__()
+        super().__init__()
         
         # 获取配置参数
         blocks_per_layer = config.MODEL_PARAMS['resnet']['blocks_per_layer']
