@@ -24,11 +24,7 @@ class BaseModel(nn.Module, ABC):
     def __init__(self):
         """初始化模型"""
         super().__init__()
-        self.current_epoch = None
-        self.early_stop = None
-        self.no_improve_count = None
-        self.best_val_loss = None
-        self.best_val_acc = None
+
         # 使用可用的最佳设备
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         # 将模型移至设备
@@ -63,6 +59,23 @@ class BaseModel(nn.Module, ABC):
         pass
     
     def _init_training_state(self) -> None:
+        # 初始化训练状态
+        self.current_epoch = 0
+        self.best_val_acc = 0.0
+        self.best_val_loss = float('inf')
+        self.no_improve_count = 0
+        self.early_stop = False
+        self.train_losses = []
+        self.train_accs = []
+        self.val_losses = []
+        self.val_accs = []
+        self.learning_rates = []
+        self.current_epoch = None
+        self.early_stop = None
+        self.no_improve_count = None
+        self.best_val_loss = None
+        self.best_val_acc = None
+
         """配置优化器和调度器"""
         # 优化器
         if config.OPTIMIZER == 'adam':
