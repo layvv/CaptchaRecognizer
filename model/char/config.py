@@ -17,6 +17,8 @@ class Config:
     # 路径配置
     DATA_ROOT: str = os.path.join(MODULE_ROOT, 'data')
     EXPERIMENT_ROOT: str = os.path.join(MODULE_ROOT, 'experiments')
+    # 实验配置
+    EXPERIMENT_FORMAT: str = "{model_name}_{timestamp}"
     EXPORT_ROOT: str = os.path.join(MODULE_ROOT, 'exported')
     
     # 数据生成配置
@@ -35,15 +37,17 @@ class Config:
     # 训练基础参数
     EPOCHS: int = 100
     BATCH_SIZE: int = 128
-    LEARNING_RATE: float = 1e-3
+    LR: float = 1e-3
 
     NUM_WORKERS: int = 4
     PIN_MEMORY: bool = True
 
     WEIGHT_DECAY: float = 1e-4
-    LR_PATIENCE: int = 5
-    LR_FACTOR: float = 0.5
+    LR_DECAY_PATIENCE: int = 5
+    LR_DECAY_FACTOR: float = 0.5
     MIN_LR: float = 1e-6
+
+    LABEL_SMOOTHING: float = 0.1
     DROPOUT: float = 0.2
 
     # 早停策略
@@ -51,8 +55,7 @@ class Config:
     PATIENCE: int = 10
     DELTA: float = 0.001
 
-    # 实验配置
-    EXPERIMENT_FORMAT: str = "{model_name}_{timestamp}"
+
 
 # 创建默认配置实例
 config = Config() 

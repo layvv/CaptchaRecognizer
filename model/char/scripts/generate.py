@@ -1,16 +1,10 @@
-from enum import Enum, auto
 import os
 
 from model.char.config import config
-
-class Mode(Enum):
-    generate = auto()
-    train = auto()
-    predict = auto()
+from model.char.executors.generator import Generator
 
 
-def generate():
-    from model.char.executors.generator import Generator
+if __name__ == '__main__':
     # 初始化生成器
     generator = Generator()
 
@@ -37,24 +31,3 @@ def generate():
     print(f"📁 训练集: {train_samples}个样本")
     print(f"📁 验证集: {valid_samples}个样本")
     print(f"📂 数据目录: {config.DATA_ROOT}")
-
-def train():
-    from model.char.executors.trainer import Trainer
-    Trainer().train('resnet')
-
-def predict():
-    from model.char.executors.predictor import Predictor
-    predictor = Predictor().use('resnet')
-
-def execute(mode: Mode):
-    if mode == Mode.generate:
-        generate()
-    elif mode == Mode.train:
-        train()
-    elif mode == Mode.predict:
-        predict()
-    else:
-        raise ValueError(f"Invalid mode: {mode}")
-
-if __name__ == '__main__':
-    execute(Mode.generate)

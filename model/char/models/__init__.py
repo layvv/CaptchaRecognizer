@@ -25,24 +25,3 @@ class BaseModel(nn.Module, ABC):
             输出张量列表，每个元素对应一个位置的分类结果
         """
         pass
-
-class ModelFactory:
-    registry = {}
-
-    @classmethod
-    def register(cls):
-        """ 注册模型 """
-        def decorator(model_cls):
-            cls.registry[model_cls.model_name] = model_cls
-            return model_cls
-        return decorator
-
-    def get_model(self, model_name: str):
-        """获取模型
-
-        Args:
-            model_name: 模型名称
-        """
-        if model_name not in self.registry:
-            raise ValueError(f"Model {model_name} not registered")
-        return self.registry[model_name]()

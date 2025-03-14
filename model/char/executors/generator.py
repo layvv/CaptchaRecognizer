@@ -63,22 +63,31 @@ class Generator:
         print(f"🚀 开始生成数据集...")
         print(f"📊 训练集: {train_count} 样本")
         print(f"📊 验证集: {valid_count} 样本")
-
+        
         # 生成数据集
         self._generate(train_dir, train_count, "训练集")
         self._generate(valid_dir, valid_count, "验证集")
         
         print("✅ 数据集生成完成!")
-
+    
     def _generate(self, output_dir: str, count: int, desc: str):
         """生成指定数量的样本
-
+        
         Args:
             output_dir: 输出目录
             count: 样本数量
             desc: 进度条描述
         """
-
+        for i in tqdm(range(count), desc=f"生成{desc}", unit="样本"):
+            # 生成随机文本
+            text = ''.join(random.choices(self.char_set, k=self.length))
+            
+            # 生成验证码图像
+            image = self._generate_image(text)
+            
+            # 保存图像
+            image_path = os.path.join(output_dir, f"{i:05d}_{text}.png")
+            image.save(image_path)
     
     def _generate_image(self, text: str) -> Image.Image:
         """生成验证码图像

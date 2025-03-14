@@ -73,7 +73,7 @@ class CaptchaDataset(Dataset):
         transforms.Normalize(mean=[0.5], std=[0.5])
     ])
     
-    def __init__(self, mode: str = 'train', num_samples: Optional[int] = None):
+    def __init__(self, mode: str = 'train', num_samples: int = config.TOTAL_SAMPLES) -> None:
         """
         初始化数据集
         
