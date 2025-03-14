@@ -1,30 +1,48 @@
-from .base_model import BaseModel
-from .cnn import BasicCNN
-from .resnet import ResNet
-from .crnn import CRNN
+from abc import ABC, abstractmethod
+from typing import List
 
-# 模型注册表
-MODELS = {
-    'cnn': BasicCNN,
-    'resnet': ResNet,
-    'crnn': CRNN
-}
+import torch
+import torch.nn as nn
 
-def get_model(model_type=None) -> BaseModel:
-    """获取模型实例
-    
-    Args:
-        model_type: 模型类型，None时使用配置中的默认值
-    
-    Returns:
-        Model: 模型实例
-    """
-    from model.char.config import config
-    
-    if model_type is None:
-        model_type = config.MODEL_TYPE
+class BaseModel(nn.Module, ABC):
+    """验证码识别模型基类"""
+
+    # 模型名称
+    model_name = "base"
+
+    def __init__(self):
+        """初始化模型"""
+        super().__init__()
+
+    @abstractmethod
+    def forward(self, x: torch.Tensor) -> List[torch.Tensor]:
+        """前向传播
         
-    if model_type not in MODELS:
-        raise ValueError(f"不支持的模型类型: {model_type}，可用模型: {list(MODELS.keys())}")
-    
-    return MODELS[model_type]() 
+        Args:
+            x: 输入张量，形状 [B, C, H, W]
+            
+        Returns:
+            输出张量列表，每个元素对应一个位置的分类结果
+        """
+        pass
+
+class ModelFactory:
+    registry = {}
+
+    @classmethod
+    def register(cls):
+        """ 注册模型 """
+        def decorator(model_cls):
+            cls.registry[model_cls.model_name] = model_cls
+            return model_cls
+        return decorator
+
+    def get_model(self, model_name: str):
+        """获取模型
+
+        Args:
+            model_name: 模型名称
+        """
+        if model_name not in self.registry:
+            raise ValueError(f"Model {model_name} not registered")
+        return self.registry[model_name]()
