@@ -6,7 +6,7 @@ from PIL import Image
 
 from model.char.config import config
 from model.char.data.dataset import CaptchaDataset
-from model.char.utils.model_util import ModelFactory
+from model.char.utils.model_util import load_model
 
 
 class Predictor:
@@ -14,7 +14,7 @@ class Predictor:
 
     def __init__(self, model_path: str):
         # 加载模型
-        self.model = ModelFactory.load_model(model_path)
+        self.model = load_model(model_path)
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
         self.model.to(self.device)
         self.model.eval()

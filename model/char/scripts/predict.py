@@ -7,7 +7,7 @@ from model.char.executors.predictor import Predictor
 if __name__ == '__main__':
     dataset = 'test'
     image_dir = os.path.join(config.DATA_ROOT, dataset)
-    model_path = 'C:\Dev\code\Projects\CaptchaRecognizer\model\char\experiments\\resnet_2025-03-14_16-56-10\checkpoint\\resnet_epoch18_acc0.9676.pth'
+    model_path = "C:\\Users\yu\Desktop\临时\\resnet_epoch34_acc0.9780.pth"
     predictor = Predictor(model_path)
 
     for image_path in os.listdir(image_dir):

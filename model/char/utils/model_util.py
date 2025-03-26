@@ -26,11 +26,13 @@ def save_checkpoint(trainer):
     Args:
         trainer: 训练器
     """
-    # 删除之前的检查点
     experiment_dir = trainer.experiment_dir
     epoch = trainer.current_epoch
-    accuracy = trainer.valid_accs[-1]
+    new_acc = trainer.valid_accs[-1]
     model: BaseModel = trainer.model
+    # 保存正确率更高的检查点
+    if new_acc <= trainer.best_valid_acc:
+        return
 
     # 创建新检查点文件名
     checkpoint_dir = os.path.join(
@@ -50,13 +52,13 @@ def save_checkpoint(trainer):
         'model_name': model.model_name,
         'module_name': model.__class__.__module__,
         'class_name': model.__class__.__name__,
-        'accuracy': accuracy,
+        'accuracy': new_acc,
         'date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
         'config': {k: v for k, v in vars(config).items() if not k.startswith('_')}
     }
     checkpoint_path = os.path.join(
         checkpoint_dir,
-        f"{model.model_name}_epoch{epoch}_acc{accuracy:.4f}.pth"
+        f"{model.model_name}_epoch{epoch}_acc{new_acc:.4f}.pth"
     )
     torch.save(state, checkpoint_path)
     # print(f"检查点已保存: {checkpoint_path}")

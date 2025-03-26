@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>智能验证码识别助手</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <header class="popup-header">
+      <img src="../assets/images/icon-48.png" alt="Logo" class="logo">
+      <h1>智能验证码识别助手</h1>
+    </header>
+
+    <div class="status-section">
+      <div class="status-indicator">
+        <span class="status-dot" id="statusDot"></span>
+        <span id="statusText">正在检查状态...</span>
+      </div>
+      <div class="api-status" id="apiStatus">API状态: 检查中...</div>
+    </div>
+
+    <div class="main-toggle">
+      <label class="switch">
+        <input type="checkbox" id="enabledToggle" checked>
+        <span class="slider round"></span>
+      </label>
+      <span class="toggle-label">启用自动识别</span>
+    </div>
+
+    <div class="action-buttons">
+      <button id="scanNowBtn" class="primary-btn">立即扫描</button>
+      <button id="manualModeBtn" class="secondary-btn">手动模式</button>
+    </div>
+
+    <div class="recognition-stats">
+      <div class="stat-item">
+        <span class="stat-label">本次识别:</span>
+        <span class="stat-value" id="sessionCount">0</span>
+      </div>
+      <div class="stat-item">
+        <span class="stat-label">成功率:</span>
+        <span class="stat-value" id="successRate">0%</span>
+      </div>
+    </div>
+
+    <div class="current-site">
+      <h3>当前网站</h3>
+      <div class="site-info">
+        <span id="currentDomain">未加载</span>
+        <button id="blacklistBtn" class="small-btn">添加到黑名单</button>
+      </div>
+      <div class="captcha-detail" id="captchaInfo">
+        <span>未检测到验证码</span>
+      </div>
+    </div>
+
+    <footer class="popup-footer">
+      <button id="optionsBtn" class="text-btn">选项设置</button>
+      <span class="version">版本: <span id="versionNumber">1.0.0</span></span>
+    </footer>
+  </div>
+  <script src="popup.js" type="module"></script>
+</body>
+</html> 
