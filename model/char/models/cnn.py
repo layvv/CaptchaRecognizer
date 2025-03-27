@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from model.char.config import config
-from model.char.models import BaseModel
+from model.char.models.base import BaseModel
 
 
 class CNN(BaseModel):
@@ -35,4 +35,4 @@ class CNN(BaseModel):
         x = torch.flatten(x, 1)
         x = F.relu(self.fc1(x))
         x = self.dropout(x)
-        return [head(x) for head in self.heads]
+        return tuple(head(x) for head in self.heads)

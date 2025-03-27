@@ -9,7 +9,8 @@ import psutil
 import torch
 
 from model.char.config import config
-from model.char.models import BaseModel
+from model.char.models.base import BaseModel
+
 
 def load_model(model_path: str):
     if not os.path.exists(model_path):
@@ -31,7 +32,7 @@ def save_checkpoint(trainer):
     new_acc = trainer.valid_accs[-1]
     model: BaseModel = trainer.model
     # 保存正确率更高的检查点
-    if new_acc <= trainer.best_valid_acc:
+    if new_acc < trainer.best_valid_acc:
         return
 
     # 创建新检查点文件名
@@ -52,9 +53,6 @@ def save_checkpoint(trainer):
         'model_name': model.model_name,
         'module_name': model.__class__.__module__,
         'class_name': model.__class__.__name__,
-        'accuracy': new_acc,
-        'date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        'config': {k: v for k, v in vars(config).items() if not k.startswith('_')}
     }
     checkpoint_path = os.path.join(
         checkpoint_dir,
@@ -72,61 +70,40 @@ def save_final_model(trainer):
     Args:
         trainer: 训练器
     """
-    # 确保导出目录存在
-    os.makedirs(config.EXPORT_ROOT, exist_ok=True)
     model = trainer.model
-
+    export_dir = os.path.join(
+        config.EXPORT_ROOT,
+        f"{model.model_name}"
+    )
+    os.makedirs(export_dir, exist_ok=True)
+    export_path = os.path.join(export_dir,"model.pth")
     # 如果发生早停，使用最佳checkpoint
     if trainer.early_stop:
-        print(f"检测到早停，导出最佳模型 (准确率: {trainer.best_val_acc:.4f})")
-        # 找到checkpoint目录中最佳模型
-        experiment_dir = trainer.experiment_dir
-        best_model = None
-        best_acc = 0
-
-        for file in os.listdir(experiment_dir):
-            if file.endswith('.pth'):
-                try:
-                    acc = float(file.split('_acc')[-1].split('.pth')[0])
-                    if acc > best_acc:
-                        best_acc = acc
-                        best_model = file
-                except:
-                    continue
-
-        if best_model:
-            checkpoint_path = os.path.join(experiment_dir, best_model)
+        print(f"检测到早停，开始导出最佳模型 (准确率: {trainer.best_valid_acc:.4f})")
+        import glob
+        checkpoint_dir = os.path.join(trainer.experiment_dir, 'checkpoint')
+        pth_files = glob.glob(os.path.join(checkpoint_dir, '*.pth'))
+        best_model_path = pth_files[0] if pth_files else None
+        if best_model_path:
             # 复制最佳模型到导出目录
-            export_path = os.path.join(
-                config.EXPORT_ROOT,
-                f"{model.model_name}_best_acc{best_acc:.4f}.pth"
-            )
-            shutil.copy(checkpoint_path, export_path)
+            shutil.copy(best_model_path, export_path)
             print(f"最佳模型已导出至: {export_path}")
+        else:
+            print("未找到最佳模型，请检查检查点目录")
             return
-
-    # 没有早停，保存当前模型
-    export_path = os.path.join(
-        config.EXPORT_ROOT,
-        f"{model.model_name}_final_acc{trainer.best_val_acc:.4f}.pth"
-    )
-
-    # 保存状态
-    state = {
-        'epoch': trainer.current_epoch,
-        'model_state_dict': trainer.model.state_dict(),
-        'model_name': model.model_name,
-        'module_name': model.__class__.__module__,
-        'class_name': model.__class__.__name__,
-        'accuracy': trainer.best_val_acc,
-        'date': datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-        'config': {k: v for k, v in vars(config).items() if not k.startswith('_')}
-    }
-
-    torch.save(state, export_path)
-    print(f"最终模型已导出至: {export_path}")
+    # 模型未发生早停，保存当前模型
+    else:
+        # 保存状态
+        state = {
+            'model_state_dict': model.state_dict(),
+            'model_name': model.model_name,
+            'module_name': model.__class__.__module__,
+            'class_name': model.__class__.__name__,
+        }
+        torch.save(state, export_path)
+        print(f"最终模型已导出至: {export_path}")
     # 保存配置信息
-    config_path = os.path.join(config.EXPORT_ROOT, f"{model.model_name}_config.json")
+    config_path = os.path.join(config.EXPORT_ROOT, f"{model.model_name}","config.json")
     config_dict = {
         'model': {
             'name': model.model_name,
@@ -139,11 +116,12 @@ def save_final_model(trainer):
             'learning_rate': config.LR,
             'weight_decay': config.WEIGHT_DECAY,
             'scheduler': trainer.scheduler.__class__.__name__,
-            'epochs': trainer.current_epoch + '/' + config.EPOCHS,
+            'epochs': f"{trainer.current_epoch}/{config.EPOCHS}",
             'early_stopping': config.EARLY_STOPPING,
             'patience': config.PATIENCE,
-            'best_val_acc': trainer.best_valid_acc,
-            'best_val_loss': trainer.best_valid_loss,
+            'best_valid_acc': trainer.best_valid_acc,
+            'best_valid_loss': trainer.best_valid_loss,
+            'start_time': trainer.start_time.strftime("%Y-%m-%d %H:%M:%S"),
             'training_time': trainer.training_time,
         },
         'dataset': {

@@ -1,0 +1,39 @@
+{
+  "model": {
+    "name": "efficientnet_b0",
+    "class": "EfficientNetB0",
+    "module": "model.char.models.efficientnet"
+  },
+  "training": {
+    "batch_size": 128,
+    "optimizer": "AdamW",
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "scheduler": "ReduceLROnPlateau",
+    "epochs": "69/100",
+    "early_stopping": true,
+    "patience": 10,
+    "best_valid_acc": 0.9876666666666667,
+    "best_valid_loss": 2.9529250429031695,
+    "start_time": "2025-03-27 02:35:53",
+    "training_time": "120 min 43 s"
+  },
+  "dataset": {
+    "char_set": "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    "num_classes": 62,
+    "captcha_length": 4,
+    "image_size": [
+      100,
+      40
+    ]
+  },
+  "system": {
+    "timestamp": "2025-03-27 04:36:36",
+    "pytorch_version": "2.3.1+cu118",
+    "cuda_available": true,
+    "gpu_name": "NVIDIA GeForce GTX 1650",
+    "platform": "Windows-10-10.0.26100-SP0",
+    "cpu_count": 16,
+    "memory": "13.9GB"
+  }
+}

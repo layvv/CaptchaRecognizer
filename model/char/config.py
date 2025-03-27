@@ -20,7 +20,8 @@ class Config:
     # 实验配置
     EXPERIMENT_FORMAT: str = "{model_name}_{timestamp}"
     EXPORT_ROOT: str = os.path.join(MODULE_ROOT, 'exported')
-    
+    # 评估配置
+    EVALUATION_ROOT: str = os.path.join(MODULE_ROOT, 'evaluation')
     # 数据生成配置
     TRAIN_RATIO: float = 0.8
     TOTAL_SAMPLES: int = 60000

@@ -1,6 +1,6 @@
-if __name__ == '__main__':
-    from model.char.executors.trainer import Trainer
-    from model.char.models.resnet import ResNet
+from model.char.models import EfficientNetB0, ResNet34, ResNet50, DenseNet121
+from model.char.executors.trainer import Trainer
 
-    Trainer(ResNet()).train()
+if __name__ == '__main__':
+    Trainer(DenseNet121()).train()
     # F1, MAC, Gmean, AUC,

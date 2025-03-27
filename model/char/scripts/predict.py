@@ -7,10 +7,11 @@ from model.char.executors.predictor import Predictor
 if __name__ == '__main__':
     dataset = 'test'
     image_dir = os.path.join(config.DATA_ROOT, dataset)
-    model_path = "C:\\Users\yu\Desktop\临时\\resnet_epoch34_acc0.9780.pth"
+    model_path = "C:\Dev\code\Projects\CaptchaRecognizer\model\char\exported\\resnet50\model.pth"
     predictor = Predictor(model_path)
-
-    for image_path in os.listdir(image_dir):
+    images = os.listdir(image_dir)
+    images.sort()
+    for image_path in images[:20]:
         if image_path.endswith('.png') or image_path.endswith('.jpg'):
             result, confidences = predictor.predict(os.path.join(image_dir, image_path))
             print(f"\n🔍 验证码识别结果:")

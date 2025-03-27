@@ -1,0 +1,39 @@
+{
+  "model": {
+    "name": "resnet34",
+    "class": "ResNet34",
+    "module": "model.char.models.resnet34"
+  },
+  "training": {
+    "batch_size": 128,
+    "optimizer": "AdamW",
+    "learning_rate": 0.001,
+    "weight_decay": 0.0001,
+    "scheduler": "ReduceLROnPlateau",
+    "epochs": "60/100",
+    "early_stopping": true,
+    "patience": 10,
+    "best_valid_acc": 0.9855833333333334,
+    "best_valid_loss": 2.955200154730614,
+    "start_time": "2025-03-27 12:27:23",
+    "training_time": "135 min 5 s"
+  },
+  "dataset": {
+    "char_set": "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ",
+    "num_classes": 62,
+    "captcha_length": 4,
+    "image_size": [
+      100,
+      40
+    ]
+  },
+  "system": {
+    "timestamp": "2025-03-27 14:42:29",
+    "pytorch_version": "2.3.1+cu118",
+    "cuda_available": true,
+    "gpu_name": "NVIDIA GeForce GTX 1650",
+    "platform": "Windows-10-10.0.26100-SP0",
+    "cpu_count": 16,
+    "memory": "13.9GB"
+  }
+}

@@ -4,6 +4,7 @@ from typing import Optional, Tuple
 
 import torch
 from PIL import Image
+from sympy.strategies.core import switch
 from torch.utils.data import Dataset
 from torchvision import transforms
 
@@ -73,7 +74,7 @@ class CaptchaDataset(Dataset):
         transforms.Normalize(mean=[0.5], std=[0.5])
     ])
     
-    def __init__(self, mode: str = 'train', num_samples: int = config.TOTAL_SAMPLES) -> None:
+    def __init__(self, mode: str = 'train', num_samples: int = None) -> None:
         """
         初始化数据集
         
@@ -86,25 +87,18 @@ class CaptchaDataset(Dataset):
         
         # 确保目录存在
         if not os.path.exists(self.image_dir):
-            if mode == 'test':
-                # 测试目录不存在时自动创建
-                os.makedirs(self.image_dir, exist_ok=True)
-                print(f"测试目录已创建: {self.image_dir}")
-                print(f"请将测试图像放入该目录")
-                self.image_files = []
-                return
-            else:
-                raise FileNotFoundError(f"数据目录不存在：{self.image_dir}，请先生成数据集")
+            raise FileNotFoundError(f"数据目录不存在：{self.image_dir}，请先生成数据集")
         
         # 获取图像文件列表 (.png, .jpg, .jpeg)
         self.image_files = [f for f in os.listdir(self.image_dir) 
                            if f.lower().endswith(('.png', '.jpg', '.jpeg'))]
-        
         # 限制样本数
-        if num_samples and num_samples < len(self.image_files):
+        if num_samples and mode != 'test' and num_samples < len(self.image_files):
             import random
-            random.shuffle(self.image_files)
-            self.image_files = self.image_files[:num_samples]
+            if mode == 'train':
+                self.image_files = random.sample(self.image_files, int(num_samples*config.TRAIN_RATIO))
+            elif mode == 'valid':
+                self.image_files = random.sample(self.image_files, num_samples-int(num_samples*config.TRAIN_RATIO))
 
     def __len__(self) -> int:
         return len(self.image_files)
