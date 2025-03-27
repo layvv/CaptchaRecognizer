@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { useCaptchaStore } from '../stores/captcha';
+import { useCaptchaStore } from '../../stores/captcha';
 
 const captchaStore = useCaptchaStore();
 const recognitionResult = computed(() => captchaStore.recognitionResult?.result || '');

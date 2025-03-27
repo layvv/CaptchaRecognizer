@@ -1,16 +1,17 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
+import { AppHeader } from '@components/common';
 import { 
-  AppHeader, 
   HomePage, 
   SettingsPage, 
   LogsPage,
-  AuthPage
-} from '../../components';
-import { useUserStore } from '../../stores/user';
+  ProfilePage
+} from '@pages';
+import { useUserStore } from '@stores/user';
 
 const userStore = useUserStore();
 const activeTab = ref('home');
+const showSettings = ref(false);
 
 // 导航选项
 const navOptions = [
@@ -25,9 +26,9 @@ const navOptions = [
     icon: 'Document'
   },
   {
-    value: 'settings',
-    label: '设置',
-    icon: 'Setting'
+    value: 'profile',
+    label: '我的',
+    icon: 'User'
   }
 ];
 
@@ -40,23 +41,38 @@ onMounted(async () => {
   }
 });
 
-// 设置活动页面
-const setActivePage = (tab: string) => {
-  activeTab.value = tab;
+// 打开设置页面
+const openSettings = () => {
+  showSettings.value = true;
+};
+
+// 关闭设置页面
+const closeSettings = () => {
+  showSettings.value = false;
 };
 </script>
 
 <template>
   <div class="app-container">
-    <AppHeader />
+    <AppHeader>
+      <template #right>
+        <el-button 
+          type="primary"
+          circle 
+          class="settings-button" 
+          @click="openSettings"
+        >
+          <el-icon><setting /></el-icon>
+        </el-button>
+      </template>
+    </AppHeader>
     
     <!-- 主要内容区域 -->
     <main class="main-content">
       <component :is="
         activeTab === 'home' ? HomePage : 
-        activeTab === 'settings' ? SettingsPage : 
         activeTab === 'logs' ? LogsPage : 
-        activeTab === 'auth' ? AuthPage : 
+        activeTab === 'profile' ? ProfilePage :
         HomePage
       " />
     </main>
@@ -74,6 +90,18 @@ const setActivePage = (tab: string) => {
         </template>
       </el-segmented>
     </div>
+    
+    <!-- 设置对话框 -->
+    <el-drawer
+      v-model="showSettings"
+      title="应用设置"
+      direction="rtl"
+      size="90%"
+      :with-header="true"
+      :before-close="closeSettings"
+    >
+      <SettingsPage />
+    </el-drawer>
   </div>
 </template>
 
@@ -143,5 +171,9 @@ html, body {
 
 .nav-text {
   font-size: 12px;
+}
+
+.settings-button {
+  font-size: 18px;
 }
 </style>

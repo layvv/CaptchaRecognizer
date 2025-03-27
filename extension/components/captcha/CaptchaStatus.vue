@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { useCaptchaStore } from '../stores/captcha';
-import type { CaptchaType } from '../types';
+import { useCaptchaStore } from '../../stores/captcha';
+import type { CaptchaType } from '../../types';
 
 const captchaStore = useCaptchaStore();
 

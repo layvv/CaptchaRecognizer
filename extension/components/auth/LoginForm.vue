@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue';
-import { useUserStore } from '../stores/user';
+import { useUserStore } from '@stores/user';
 import type { FormInstance, FormRules } from 'element-plus';
 
 const emit = defineEmits(['register', 'login-success']);

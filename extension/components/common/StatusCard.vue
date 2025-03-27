@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { useCaptchaStore } from '../stores/captcha';
-import type { CaptchaType } from '../types';
+import { useCaptchaStore } from '../../stores/captcha';
+import type { CaptchaType } from '../../types';
 
 const captchaStore = useCaptchaStore();
 const serverStatus = ref('online'); // 可能的值: online, offline, loading

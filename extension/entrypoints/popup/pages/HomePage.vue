@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { ref } from 'vue';
-import StatusCard from './StatusCard.vue';
-import ActionButtons from './ActionButtons.vue';
-import RecognitionResult from './RecognitionResult.vue';
-import { useCaptchaStore } from '../stores/captcha';
+import { StatusCard, ActionButtons } from '../../../components/common';
+import { RecognitionResult } from '../../../components/captcha';
+import { useCaptchaStore } from '../../../stores/captcha';
 
 const captchaStore = useCaptchaStore();
 

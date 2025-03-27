@@ -1,6 +1,6 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { useApi } from '../composables/useApi';
+import { useCaptchaApi } from '../composables/api';
 import type { 
   CaptchaInfoSet,
   CaptchaRecognizeRequest,
@@ -10,7 +10,7 @@ import type {
 } from '../types';
 
 export const useCaptchaStore = defineStore('captcha', () => {
-  const api = useApi();
+  const captchaApi = useCaptchaApi();
   
   const currentInfoSet = ref<CaptchaInfoSet | null>(null);
   const recognitionResult = ref<CaptchaRecognizeResponse | null>(null);
@@ -26,7 +26,7 @@ export const useCaptchaStore = defineStore('captcha', () => {
     
     try {
       const request: GetCaptchaInfoSetRequest = { websiteUrl };
-      const response = await api.getCaptchaInfoSet(request);
+      const response = await captchaApi.getCaptchaInfoSet(request);
       
       currentInfoSet.value = response.infoSet;
       return response.infoSet;
@@ -45,7 +45,7 @@ export const useCaptchaStore = defineStore('captcha', () => {
     
     try {
       const request: UploadCaptchaInfoSetRequest = { infoSet };
-      const response = await api.uploadCaptchaInfoSet(request);
+      const response = await captchaApi.uploadCaptchaInfoSet(request);
       
       // 更新当前信息集合
       if (infoSet.id) {
@@ -80,7 +80,7 @@ export const useCaptchaStore = defineStore('captcha', () => {
         captchaType: currentInfoSet.value.captchaType
       };
       
-      const result = await api.recognizeCaptcha(request);
+      const result = await captchaApi.recognizeCaptcha(request);
       recognitionResult.value = result;
       return result;
     } catch (err) {

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed } from 'vue';
-import { useUserStore } from '../stores/user';
+import { useUserStore } from '@stores/user';
 
 const userStore = useUserStore();
 const isLoggedIn = computed(() => userStore.isLoggedIn);
@@ -47,6 +47,9 @@ const handleLogout = () => {
         <el-avatar :size="28" class="avatar">{{ username.charAt(0) }}</el-avatar>
         <span class="username">{{ username }}</span>
       </div>
+      
+      <!-- 右侧自定义插槽 -->
+      <slot name="right"></slot>
     </div>
   </el-header>
 </template>

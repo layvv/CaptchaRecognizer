@@ -1,12 +1,12 @@
 import { defineStore } from 'pinia';
 import { ref, computed } from 'vue';
-import { useApi } from '../composables/useApi';
-import type { UserResponse, UserLoginRequest, UserRegisterRequest } from '../types';
+import { useUserApi } from '../composables/api';
+import type { UserInfo, LoginRequest, RegisterRequest } from '../types';
 
 export const useUserStore = defineStore('user', () => {
-  const api = useApi();
+  const userApi = useUserApi();
   
-  const currentUser = ref<UserResponse | null>(null);
+  const currentUser = ref<UserInfo | null>(null);
   const isLoading = ref(false);
   const error = ref<string | null>(null);
   
@@ -15,12 +15,12 @@ export const useUserStore = defineStore('user', () => {
   const usageCount = computed(() => currentUser.value?.usageCount || 0);
   
   // 登录
-  async function login(credentials: UserLoginRequest) {
+  async function login(credentials: LoginRequest) {
     isLoading.value = true;
     error.value = null;
     
     try {
-      const user = await api.login(credentials);
+      const user = await userApi.login(credentials);
       currentUser.value = user;
       
       // 保存认证令牌到本地存储
@@ -36,12 +36,12 @@ export const useUserStore = defineStore('user', () => {
   }
   
   // 注册
-  async function register(userData: UserRegisterRequest) {
+  async function register(userData: RegisterRequest) {
     isLoading.value = true;
     error.value = null;
     
     try {
-      const user = await api.register(userData);
+      const user = await userApi.register(userData);
       currentUser.value = user;
       
       // 保存认证令牌到本地存储
@@ -70,7 +70,7 @@ export const useUserStore = defineStore('user', () => {
     isLoading.value = true;
     
     try {
-      const user = await api.getUserInfo();
+      const user = await userApi.getUserInfo();
       currentUser.value = user;
     } catch (err) {
       // 如果获取用户信息失败，可能是令牌无效，清除本地存储
