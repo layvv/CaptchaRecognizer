@@ -16,13 +16,10 @@
   },
   "dependencies": {
     "@element-plus/icons-vue": "^2.3.1",
-    "@types/uuid": "^10.0.0",
+    "axios": "^1.8.4",
     "element-plus": "^2.9.7",
     "pinia": "^3.0.1",
-    "pinia-plugin-persistedstate": "^4.2.0",
-    "uuid": "^11.1.0",
-    "vue": "^3.5.12",
-    "vue-router": "^4.5.0"
+    "vue": "^3.5.12"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.280",

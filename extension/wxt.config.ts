@@ -5,15 +5,23 @@ import { resolve } from 'path';
 export default defineConfig({
   extensionApi: 'chrome',
   modules: ['@wxt-dev/module-vue'],
+  srcDir: "src",
+  manifest: {
+    name: "验证码识别助手",
+    description: "基于深度学习的验证码识别浏览器扩展",
+    permissions: [
+      "storage",
+      "tabs",
+      "activeTab"
+    ],
+    host_permissions: [
+      "<all_urls>"
+    ]
+  },
   vite: () => ({
     resolve: {
       alias: {
-        '@': resolve(__dirname, './'),
-        '@components': resolve(__dirname, './components'),
-        '@stores': resolve(__dirname, './stores'),
-        '@composables': resolve(__dirname, './composables'),
-        '@types': resolve(__dirname, './types'),
-        '@pages': resolve(__dirname, './entrypoints/popup/pages')
+        '@': resolve(__dirname, './src')
       }
     }
   })
